@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>2D Fighting Game</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div id="game-root">
+      <canvas id="game" width="960" height="540"></canvas>
+
+      <div class="hud">
+        <div class="healthbars">
+          <div class="bar-wrapper left">
+            <div id="p1-name" class="name">P1</div>
+            <div class="bar-bg">
+              <div id="p1-health" class="bar-fg"></div>
+              <div id="p1-chip" class="bar-chip"></div>
+            </div>
+          </div>
+          <div class="timer" id="timer">99</div>
+          <div class="bar-wrapper right">
+            <div id="p2-name" class="name right">P2</div>
+            <div class="bar-bg">
+              <div id="p2-health" class="bar-fg right"></div>
+              <div id="p2-chip" class="bar-chip right"></div>
+            </div>
+          </div>
+        </div>
+        <div class="messages" id="messages"></div>
+        <div class="controls">
+          <div>
+            P1: Move A/D • Jump W • Light J • Heavy K
+          </div>
+          <div>
+            P2: Move ←/→ • Jump ↑ • Light 1 • Heavy 2
+          </div>
+          <div>
+            Reset: R • Pause: P
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="src/main.js"></script>
+  </body>
+</html>
