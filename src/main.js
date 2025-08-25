@@ -1,9 +1,6 @@
-/* 2D Fighting Game — VS AI, simple animations & sounds (no external assets)
-   Author: You
-   How to use:
-   - Open index.html in a browser.
-   - Press any key or click to enable audio.
-   - You are P1 vs AI P2.
+/* Fighthing Street — VS AI, Menu + ensured P2 health bar visibility
+   - Click "Play" to start the round and enable AI behavior
+   - P2 health bar is explicitly rendered and initialized
 */
 
 (() => {
@@ -18,6 +15,8 @@
     timer: document.getElementById('timer'),
     messages: document.getElementById('messages'),
     aiDiff: document.getElementById('ai-diff'),
+    menu: document.getElementById('menu'),
+    btnPlay: document.getElementById('btn-play'),
   };
 
   const CONFIG = {
@@ -33,7 +32,6 @@
     HURTBOX: { w: 56, h: 110 },
     ROUND_TIME: 99,
     PUSHBOX: 0.5,
-    // Effects
     HITSTOP_LIGHT: 0.06,
     HITSTOP_HEAVY: 0.10,
     CAM_SHAKE_LIGHT: 5,
@@ -55,9 +53,7 @@
     return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
   }
   function randRange(a, b) { return a + Math.random() * (b - a); }
-  function sign(x) { return x < 0 ? -1 : 1; }
 
-  // Audio (WebAudio, synthesized)
   class Sound {
     constructor() {
       const AC = window.AudioContext || window.webkitAudioContext;
@@ -70,8 +66,6 @@
       this.muted = false;
       this._noiseBuf = null;
       if (this.ctx) {
-        // Lazily build noise buffer on first use
-        this.ctx.resume?.();
         const unlock = () => this.ctx.resume?.();
         window.addEventListener('keydown', unlock, { once: true });
         window.addEventListener('pointerdown', unlock, { once: true });
@@ -120,12 +114,10 @@
       src.start(t0);
       src.stop(t0 + dur + decay + 0.05);
     }
-    // High-level cues
     whoosh(light=true) {
       this.playNoise({ type: 'bandpass', freq: light ? 900 : 650, q: 0.8, dur: light ? 0.09 : 0.14, gain: light ? 0.2 : 0.28 });
     }
     hit(light=true) {
-      // noise burst + low thump
       this.playNoise({ type: 'lowpass', freq: light ? 1000 : 700, q: 0.9, dur: 0.08, gain: light ? 0.24 : 0.32 });
       this.playTone({ type: 'sine', freq: light ? 220 : 160, dur: 0.05, attack: 0.001, decay: 0.1, gain: 0.25 });
     }
@@ -163,12 +155,11 @@
     }
   }
 
-  // Virtual gamepad for AI to "press keys"
   class VirtualPad {
     constructor() {
       this.pressed = new Set();
       this.prev = new Set();
-      this.impulses = new Map(); // code -> time remaining
+      this.impulses = new Map();
     }
     press(code, time = 0.09) {
       this.pressed.add(code);
@@ -181,7 +172,6 @@
     isDown(code) { return this.pressed.has(code); }
     justPressed(code) { return this.pressed.has(code) && !this.prev.has(code); }
     update(dt) {
-      // decay impulses
       for (const [code, t] of this.impulses.entries()) {
         const nt = t - dt;
         if (nt <= 0) {
@@ -207,8 +197,8 @@
       this.hitstun = hitstun;
       this.width = width;
       this.height = height;
-      this.offsetX = offsetX; // forward +
-      this.offsetY = offsetY; // from feet up is -Y
+      this.offsetX = offsetX;
+      this.offsetY = offsetY;
     }
     total() { return this.startup + this.active + this.recovery; }
   }
@@ -239,12 +229,12 @@
 
       this.pos = { x, y: CONFIG.FLOOR_Y };
       this.vel = { x: 0, y: 0 };
-      this.facing = id === 1 ? 1 : -1; // 1 -> right, -1 -> left
+      this.facing = id === 1 ? 1 : -1;
       this.w = CONFIG.HURTBOX.w;
       this.h = CONFIG.HURTBOX.h;
       this.onGround = true;
 
-      this.state = 'idle'; // idle, walk, jump, attack, hitstun, ko
+      this.state = 'idle';
       this.health = 100;
       this.chipHealth = 100;
 
@@ -260,10 +250,9 @@
 
       this.name = id === 1 ? 'You' : 'AI';
 
-      // Anim
       this.animT = 0;
       this.landedThisFrame = false;
-      this.flashT = 0; // on hit
+      this.flashT = 0;
     }
 
     hurtbox() {
@@ -330,7 +319,6 @@
     handleInput(input, dt) {
       if (this.state === 'ko') return;
 
-      // Movement
       if (this.canControl()) {
         let move = 0;
         if (input.isDown(this.controls.left)) move -= 1;
@@ -349,7 +337,6 @@
         else if (this.onGround && this.state !== 'attack') this.state = 'idle';
       }
 
-      // Jump buffer
       if (input.justPressed(this.controls.jump)) {
         this.jumpBuffered = 0.12;
       }
@@ -365,7 +352,6 @@
         }
       }
 
-      // Attacks
       if (input.justPressed(this.controls.light)) this.startAttack(ATTACKS.light);
       if (input.justPressed(this.controls.heavy)) {
         if (!this.onGround) this.startAttack(ATTACKS.antiAir);
@@ -375,11 +361,10 @@
 
     step(dt) {
       this.landedThisFrame = false;
-      // Attack progression
+
       if (this.state === 'attack' && this.attack) {
         const prevT = this.attackT;
         this.attackT += dt;
-        // detect enter active
         if (prevT < this.attack.startup && this.attackT >= this.attack.startup) {
           this._activeJustStarted = true;
         }
@@ -395,7 +380,6 @@
         }
       }
 
-      // Hitstun
       if (this.state === 'hitstun') {
         this.hitstunT -= dt;
         if (this.hitstunT <= 0) {
@@ -403,10 +387,8 @@
         }
       }
 
-      // Physics
       this.vel.y += CONFIG.GRAVITY * dt;
 
-      // Friction/drag
       if (this.onGround && this.canControl()) {
         const s = Math.sign(this.vel.x);
         const mag = Math.abs(this.vel.x);
@@ -417,19 +399,15 @@
         this.vel.x *= CONFIG.AIR_DRAG;
       }
 
-      // Integrate
       this.pos.x += this.vel.x * dt;
       this.pos.y += this.vel.y * dt;
 
-      // World bounds
       const half = this.w / 2;
       if (this.pos.x < half) { this.pos.x = half; this.vel.x = 0; }
       if (this.pos.x > CONFIG.WIDTH - half) { this.pos.x = CONFIG.WIDTH - half; this.vel.x = 0; }
 
-      // Ground collision
       if (this.pos.y >= CONFIG.FLOOR_Y) {
         if (!this.onGround) {
-          // landing
           this.landedThisFrame = true;
           SFX.land();
         }
@@ -445,16 +423,13 @@
         this.onGround = false;
       }
 
-      // Anim timers
       this.animT += dt;
       if (this.flashT > 0) this.flashT -= dt;
 
-      // Chip health tween
       this.chipHealth = lerp(this.chipHealth, this.health, 0.12);
     }
 
     draw(ctx, debug = false, time = 0, camShake = { x: 0, y: 0 }) {
-      // Shadow
       const shadowW = this.w * 0.9;
       const shadowH = 10;
       ctx.fillStyle = COLORS.shadow;
@@ -462,7 +437,6 @@
       ctx.ellipse(this.pos.x + camShake.x * 0.1, CONFIG.FLOOR_Y + 2 + camShake.y * 0.1, shadowW, shadowH, 0, 0, Math.PI * 2);
       ctx.fill();
 
-      // Simple articulated body
       ctx.save();
       ctx.translate(this.pos.x + camShake.x, this.pos.y + camShake.y);
       ctx.scale(this.facing, 1);
@@ -473,7 +447,6 @@
       const runSwing = Math.sin(time * 12) * 10 * (this.state === 'walk' ? 1 : 0);
       const jumpTilt = this.onGround ? 0 : clamp(this.vel.y * 0.03, -8, 10);
 
-      // Hit flash
       const baseColor = this.color;
       const flash = this.flashT > 0 ? 1 - this.flashT / 0.12 : 0;
       const mix = (c1, c2, t) => {
@@ -486,44 +459,37 @@
       };
       const bodyColor = mix(baseColor, '#ffffff', flash * 0.8);
 
-      // Torso
       ctx.save();
       ctx.translate(0, idleBob);
       ctx.rotate((runSwing * 0.02 + jumpTilt * Math.PI / 180));
       ctx.fillStyle = bodyColor;
       ctx.fillRect(-bodyW/2, -bodyH, bodyW, bodyH);
 
-      // Face stripe
       ctx.fillStyle = 'rgba(255,255,255,0.85)';
       ctx.fillRect(bodyW*0.15, -bodyH*0.8, 6, 10);
 
-      // Arms (swing/attack pose)
       const armW = 10;
       ctx.fillStyle = 'rgba(255,255,255,0.15)';
       const attackPose = this.state === 'attack' ? clamp((this.attackT / (this.attack?.total() || 1)) * 1.2, 0, 1) : 0;
       const armUp = -bodyH * 0.65;
       const armH = bodyH * 0.55;
 
-      // Back arm
       ctx.save();
       ctx.translate(-bodyW/2 - armW, armUp);
       ctx.rotate((-runSwing * 0.05) - attackPose * 0.4);
       ctx.fillRect(0, 0, armW, armH);
       ctx.restore();
 
-      // Front arm
       ctx.save();
       ctx.translate(bodyW/2, armUp);
       ctx.rotate((runSwing * 0.05) + attackPose * 0.7);
       ctx.fillRect(0, 0, armW, armH);
-      // Fist accent
       ctx.fillStyle = 'rgba(255,255,255,0.6)';
       ctx.fillRect(-2, armH - 10, armW + 4, 10);
       ctx.restore();
 
-      ctx.restore(); // torso
+      ctx.restore();
 
-      // Attack swing arc
       if (this.attackIsActiveNow()) {
         ctx.save();
         ctx.translate(0, idleBob);
@@ -538,7 +504,6 @@
 
       ctx.restore();
 
-      // Debug boxes
       if (debug) {
         const hb = this.hurtbox();
         ctx.fillStyle = COLORS.hurtbox;
@@ -552,7 +517,6 @@
     }
   }
 
-  // Simple particles
   class Particle {
     constructor(x, y, vx, vy, life, size, color) {
       this.x = x; this.y = y;
@@ -566,7 +530,7 @@
       this.life -= dt;
       this.x += this.vx * dt;
       this.y += this.vy * dt;
-      this.vy += 1200 * dt * 0.2; // slight gravity
+      this.vy += 1200 * dt * 0.2;
     }
     draw(ctx) {
       const t = clamp(this.life / this.maxLife, 0, 1);
@@ -590,7 +554,7 @@
       ));
     }
   }
-  function spawnDust(particles, x, y, facing) {
+  function spawnDust(particles, x, y) {
     for (let i = 0; i < 6; i++) {
       const vx = randRange(40, 120) * (Math.random() < 0.5 ? -1 : 1);
       const vy = randRange(-30, -90);
@@ -604,12 +568,12 @@
     }
   }
 
-  // AI Controller
   const DIFFS = [
     { name: 'Easy', reaction: 0.26, desired: 120, jumpProb: 0.04, attackCD: 0.65, bravery: 0.5 },
     { name: 'Normal', reaction: 0.18, desired: 100, jumpProb: 0.07, attackCD: 0.45, bravery: 0.7 },
     { name: 'Hard', reaction: 0.12, desired: 90, jumpProb: 0.10, attackCD: 0.34, bravery: 0.9 },
   ];
+
   class AIController {
     constructor(fighter, opponent, pad) {
       this.f = fighter;
@@ -618,21 +582,22 @@
       this.t = 0;
       this.nextThink = 0;
       this.coolAttack = 0;
-      this.diffIndex = 1; // Normal
+      this.diffIndex = 1;
+      this.enabled = false;
     }
     setDifficulty(idx) {
       this.diffIndex = ((idx % DIFFS.length) + DIFFS.length) % DIFFS.length;
     }
     get diff() { return DIFFS[this.diffIndex]; }
     update(dt) {
-      this.t += dt;
       this.pad.update(dt);
+      if (!this.enabled) return;
+
+      this.t += dt;
       if (this.coolAttack > 0) this.coolAttack -= dt;
 
-      // Don't issue new decisions during hitstun/KO
       if (this.f.state === 'hitstun' || this.f.state === 'ko') return;
 
-      // Think at intervals
       this.nextThink -= dt;
       if (this.nextThink > 0) return;
       this.nextThink = this.diff.reaction * randRange(0.8, 1.2);
@@ -640,39 +605,29 @@
       const f = this.f, o = this.opp;
       const distX = Math.abs(f.pos.x - o.pos.x);
       const onGround = f.onGround;
-      const facing = f.facing;
       const close = distX < 70;
       const mid = distX < 130;
 
-      // Clear held movement by default; will re-press
       this.pad.setDown(f.controls.left, false);
       this.pad.setDown(f.controls.right, false);
 
-      // Maintain spacing
       if (distX > this.diff.desired + 20) {
-        // approach
         if (f.pos.x < o.pos.x) this.pad.setDown(f.controls.right, true);
         else this.pad.setDown(f.controls.left, true);
       } else if (distX < this.diff.desired - 20) {
-        // back off sometimes (bravery reduces backing away)
         if (Math.random() > this.diff.bravery) {
           if (f.pos.x < o.pos.x) this.pad.setDown(f.controls.left, true);
           else this.pad.setDown(f.controls.right, true);
         }
-      } else {
-        // strafe slightly
-        if (Math.random() < 0.3) {
-          if (Math.random() < 0.5) this.pad.setDown(f.controls.left, true);
-          else this.pad.setDown(f.controls.right, true);
-        }
+      } else if (Math.random() < 0.3) {
+        if (Math.random() < 0.5) this.pad.setDown(f.controls.left, true);
+        else this.pad.setDown(f.controls.right, true);
       }
 
-      // Jump-in chance if far
       if (onGround && distX > this.diff.desired + 40 && Math.random() < this.diff.jumpProb) {
         this.pad.press(f.controls.jump, 0.08);
       }
 
-      // Anti-air: if opponent rising and within mid range, swing heavy
       const oppRising = !o.onGround && o.vel.y < -50 && mid;
       if (onGround && oppRising && this.coolAttack <= 0) {
         this.pad.press(f.controls.heavy);
@@ -680,10 +635,9 @@
         return;
       }
 
-      // Attacks
       if (onGround && this.coolAttack <= 0) {
         if (close && Math.random() < 0.6) {
-          this.pad.press(f.controls.heavy); // big close buttons
+          this.pad.press(f.controls.heavy);
           this.coolAttack = this.diff.attackCD;
         } else if (mid && Math.random() < 0.75) {
           this.pad.press(f.controls.light);
@@ -691,7 +645,6 @@
         }
       }
 
-      // Air follow-up
       if (!onGround && this.coolAttack <= 0 && Math.random() < 0.5) {
         this.pad.press(f.controls.heavy);
         this.coolAttack = this.diff.attackCD;
@@ -710,14 +663,13 @@
         heavy: 'KeyK',
       });
       this.p2 = new Fighter(2, CONFIG.WIDTH * 0.7, COLORS.p2, {
-        left: 'ArrowLeft', // not used by player; AI presses these
+        left: 'ArrowLeft',
         right: 'ArrowRight',
         jump: 'ArrowUp',
         light: 'Digit1',
         heavy: 'Digit2',
       });
 
-      // Inputs
       this.aiPad = new VirtualPad();
       this.ai = new AIController(this.p2, this.p1, this.aiPad);
 
@@ -727,11 +679,10 @@
       this.roundOver = false;
       this.paused = false;
       this.debug = false;
+      this.inMenu = true;
 
       this.lastTs = 0;
-      this.accumTime = 0;
 
-      // Effects
       this.hitstopT = 0;
       this.camShakeT = 0;
       this.camShakeMag = 0;
@@ -739,6 +690,10 @@
       this.lastTimerWhole = CONFIG.ROUND_TIME;
 
       window.addEventListener('keydown', (e) => {
+        if (this.inMenu && (e.code === 'Enter' || e.code === 'Space')) {
+          this.startGame();
+          return;
+        }
         if (e.code === 'KeyR') this.resetRound();
         if (e.code === 'KeyP') this.togglePause();
         if (e.code === 'Backquote') this.debug = !this.debug;
@@ -752,22 +707,31 @@
           this.flashMessage(`AI: ${this.ai.diff.name}`, 0.8);
         }
       });
+      UI.btnPlay.addEventListener('click', () => this.startGame());
 
-      // Initialize UI
-      UI.aiDiff.textContent = this.ai.diff.name;
-      this.updateUI();
+      this.updateUI(true);
       requestAnimationFrame(this.loop.bind(this));
+    }
+
+    startGame() {
+      if (!this.inMenu) return;
+      this.inMenu = false;
+      UI.menu.classList.add('hidden');
+      this.resetRound();
+      this.ai.enabled = true;
+      this.flashMessage('Fight!', 1.0);
     }
 
     flashMessage(msg, secs = 1.2) {
       UI.messages.textContent = msg;
       clearTimeout(this._msgTO);
       this._msgTO = setTimeout(() => {
-        if (!this.roundOver) UI.messages.textContent = '';
+        if (!this.roundOver && !this.inMenu) UI.messages.textContent = '';
       }, secs * 1000);
     }
 
     togglePause() {
+      if (this.inMenu) return;
       this.paused = !this.paused;
       UI.messages.textContent = this.paused ? 'Paused' : '';
     }
@@ -810,7 +774,7 @@
       this.lastTs = ts;
       const dt = Math.min(1/30, dtRaw);
 
-      if (!this.paused) this.step(dt);
+      if (!this.inMenu && !this.paused) this.step(dt);
       this.draw();
 
       this.kb.update();
@@ -818,20 +782,13 @@
     }
 
     step(dt) {
-      // Hitstop freezes most updates
       if (this.hitstopT > 0) {
         this.hitstopT -= dt;
-        // still update AI pad timers and keep inputs aging
         this.ai.update(dt);
-        for (const p of this.players) {
-          // decay flash even during hitstop
-          if (p.flashT > 0) p.flashT -= dt;
-        }
-        // Do not decrement timer during hitstop
+        for (const p of this.players) if (p.flashT > 0) p.flashT -= dt;
         return;
       }
 
-      // Round timer
       if (!this.roundOver) {
         this.timeLeft -= dt;
         const whole = Math.max(0, Math.ceil(this.timeLeft));
@@ -849,19 +806,15 @@
         }
       }
 
-      // Input/facing
       this.p1.handleInput(this.kb, dt);
-      // AI controls P2
       this.ai.update(dt);
       this.p2.handleInput(this.aiPad, dt);
 
       this.p1.updateFacing(this.p2);
       this.p2.updateFacing(this.p1);
 
-      // Step physics/attacks
       for (const p of this.players) p.step(dt);
 
-      // Play whoosh when attack becomes active
       for (const p of this.players) {
         if (p._activeJustStarted) {
           SFX.whoosh(p.attack?.damage <= 9);
@@ -869,18 +822,14 @@
         }
       }
 
-      // Push apart
       this.resolvePush();
 
-      // Landing dust
       for (const p of this.players) {
-        if (p.landedThisFrame) spawnDust(this.particles, p.pos.x, CONFIG.FLOOR_Y, p.facing);
+        if (p.landedThisFrame) spawnDust(this.particles, p.pos.x, CONFIG.FLOOR_Y);
       }
 
-      // Hits
       if (!this.roundOver) this.resolveHits();
 
-      // KO
       if (!this.roundOver) {
         if (this.p1.state === 'ko' || this.p2.state === 'ko') {
           const msg = this.p1.state === 'ko' && this.p2.state === 'ko'
@@ -890,14 +839,12 @@
         }
       }
 
-      // Particles
       for (let i = this.particles.length - 1; i >= 0; i--) {
         const pt = this.particles[i];
         pt.step(dt);
         if (pt.life <= 0) this.particles.splice(i, 1);
       }
 
-      // Camera shake decay
       if (this.camShakeT > 0) this.camShakeT -= dt;
       if (this.camShakeT <= 0) this.camShakeMag = 0;
 
@@ -913,7 +860,7 @@
       const centerB = b.x + b.w / 2;
       const overlapX = (a.w / 2 + b.w / 2) - Math.abs(centerA - centerB);
       if (overlapX > 0) {
-        const push = overlapX * CONFIG.PUSHBOX;
+        const push = overlapX * 0.5;
         const dir = centerA < centerB ? -1 : 1;
         this.p1.pos.x += push * dir;
         this.p2.pos.x -= push * dir;
@@ -934,12 +881,13 @@
           defender.takeHit(attacker, attacker.attack);
           attacker.hasHitThisAttack = true;
 
-          // Effects: hitstop, shake, sparks, sounds
           const heavy = attacker.attack.damage > 9;
-          this.hitstopT = heavy ? CONFIG.HITSTOP_HEAVY : CONFIG.HITSTOP_LIGHT;
+          this.hitstopT = heavy ? 0.10 : 0.06;
           this.camShakeT = heavy ? 0.22 : 0.14;
-          this.camShakeMag = heavy ? CONFIG.CAM_SHAKE_HEAVY : CONFIG.CAM_SHAKE_LIGHT;
-          spawnHitSparks(this.particles, (hb.x + hb.x + hb.w)/2, (hb.y + hb.y + hb.h)/2, 'rgba(255,255,255,0.9)');
+          this.camShakeMag = heavy ? 10 : 5;
+          const cx = hb.x + hb.w / 2;
+          const cy = hb.y + hb.h / 2;
+          spawnHitSparks(this.particles, cx, cy, 'rgba(255,255,255,0.9)');
           SFX.hit(!heavy);
         }
       };
@@ -951,8 +899,8 @@
       const setBars = (el, chipEl, value, chip) => {
         const v = clamp(value, 0, 100);
         const c = clamp(chip, 0, 100);
-        el.style.transform = `scaleX(${v/100})`;
-        chipEl.style.transform = `scaleX(${c/100})`;
+        el.style.width = `${v}%`;
+        chipEl.style.width = `${c}%`;
       };
       setBars(UI.p1Health, UI.p1Chip, this.p1.health, this.p1.chipHealth);
       setBars(UI.p2Health, UI.p2Chip, this.p2.health, this.p2.chipHealth);
@@ -964,17 +912,14 @@
     draw() {
       const { WIDTH, HEIGHT, FLOOR_Y } = CONFIG;
 
-      // Camera shake offsets
       let cam = { x: 0, y: 0 };
       if (this.camShakeT > 0) {
         cam.x = (Math.random() * 2 - 1) * this.camShakeMag;
         cam.y = (Math.random() * 2 - 1) * this.camShakeMag * 0.6;
       }
 
-      // Background
       ctx.clearRect(0, 0, WIDTH, HEIGHT);
 
-      // Far skyline
       for (let i = 0; i < 4; i++) {
         const h = 80 + i * 40;
         const y = FLOOR_Y - 160 - i * 26;
@@ -985,14 +930,12 @@
         ctx.fillRect(820 + i*80, y + 6, 70, h - 12);
       }
 
-      // Ground plane gradient
       const grd = ctx.createLinearGradient(0, FLOOR_Y - 50, 0, HEIGHT);
       grd.addColorStop(0, 'rgba(0,0,0,0.08)');
       grd.addColorStop(1, 'rgba(0,0,0,0.35)');
       ctx.fillStyle = grd;
       ctx.fillRect(0, FLOOR_Y - 40, WIDTH, HEIGHT - (FLOOR_Y - 40));
 
-      // Stage line
       ctx.strokeStyle = COLORS.stageLine;
       ctx.lineWidth = 2;
       ctx.beginPath();
@@ -1002,15 +945,12 @@
 
       const now = performance.now() / 1000;
 
-      // Draw players
       this.p1.draw(ctx, this.debug, now, cam);
       this.p2.draw(ctx, this.debug, now, cam);
 
-      // Particles
       for (const pt of this.particles) pt.draw(ctx);
     }
   }
 
-  // Boot
   new Game();
 })();
