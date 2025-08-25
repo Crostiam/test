@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>2D Fighting Game — VS AI</title>
+    <title>Fighthing Street — VS AI</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="stylesheet" href="styles.css" />
   </head>
@@ -40,7 +40,19 @@
             Sound: Mute/Unmute M • AI Difficulty: <span id="ai-diff">Normal</span> (H to cycle)
           </div>
           <div>
-            Tip: Click the page or press any key to enable audio.
+            Tip: Click Play or press any key to enable audio.
+          </div>
+        </div>
+      </div>
+
+      <!-- Start Menu Overlay -->
+      <div id="menu" class="menu-overlay">
+        <div class="menu-panel">
+          <div class="menu-title">Fighthing Street</div>
+          <div class="menu-sub">VS AI • Canvas + WebAudio</div>
+          <button id="btn-play" class="btn-primary">Play</button>
+          <div class="menu-hint">
+            Controls: A/D to move, W to jump, J/K to attack. Press H in-game to change AI difficulty.
           </div>
         </div>
       </div>
