@@ -1,57 +1,57 @@
-# 2D Fighting Game (HTML5 Canvas)
+# 2D Fighting Game (HTML5 Canvas) — VS AI, Animations & Sounds
 
-A tiny, no-dependency 2D fighting game you can run in your browser. Two players, basic physics, hitboxes, hurtboxes, health bars, round timer, and KO logic.
+A tiny, no-dependency 2D fighting game you can run in your browser. You play as P1 against an AI opponent (P2). Includes basic animations, synthesized sound effects (no external assets), particles, health bars, round timer, and KO logic.
 
 ## How to run
 
-- Option 1: Just open `index.html` in a modern browser (Chrome, Edge, Firefox, Safari).
-- Option 2: Serve the folder with a local web server:
+- Option 1: Open `index.html` in a modern browser (Chrome, Edge, Firefox, Safari).
+- Option 2: Serve with a local web server:
   - Python: `python3 -m http.server` then visit http://localhost:8000
   - Node: `npx serve` or `npx http-server`
 
-No build step required.
+Tip: Click the page or press any key to enable audio (browsers require user interaction to start sound).
 
 ## Controls
 
-- Player 1:
+- You (Player 1):
   - Move: A / D
   - Jump: W
   - Light: J
   - Heavy: K
-- Player 2:
-  - Move: ← / →
-  - Jump: ↑
-  - Light: 1
-  - Heavy: 2
 - System:
   - Reset Round: R
   - Pause: P
-  - Toggle Debug Boxes (hurtbox/hitbox): ` (backtick)
+  - Toggle Debug Boxes: ` (backtick)
+  - Toggle Mute: M
+  - Cycle AI Difficulty: H
 
 ## Features
 
-- Rect-based fighters with gravity, ground friction, air control.
-- 3 attacks (contextual heavy becomes anti-air in air).
-- Hit detection with startup/active/recovery windows.
-- Knockback and hitstun.
-- Health bars with chip animation and round timer.
-- KO/Timeout handling and reset.
+- AI opponent with 3 difficulties (Easy, Normal, Hard)
+  - Maintains spacing, approaches/backs off, jumps in occasionally
+  - Attacks based on distance; tries to anti-air
+- Procedural animations
+  - Idle bob, run sway, jump tilt, attack swing arcs
+  - Hit flash, landing dust, particle hit sparks
+  - Camera shake and hitstop on impact
+- Sound effects (synthesized via WebAudio, no files)
+  - Whoosh on swings, hit thuds, jump/land, timer ticks, KO
+- Gameplay
+  - 3 attacks (light, heavy, anti-air while airborne)
+  - Knockback, hitstun, health bars with chip animation
+  - Round timer, KO/Timeout handling and reset
 
 ## Customize
 
-Open `src/main.js` and tweak:
-
-- Physics: `CONFIG` (gravity, speed, jump, etc.)
+- Physics: edit `CONFIG` in `src/main.js` (gravity, speeds, etc.)
 - Attacks: `ATTACKS` specs (startup/active/recovery, damage, knockback, hitstun, hitbox size/offset)
-- Stage size: canvas size in `index.html` and `CONFIG.WIDTH/HEIGHT`
-- Controls: mappings per player in the `Game` constructor.
+- AI: `DIFFS` array for behavior knobs (reaction, desired range, aggressiveness)
+- Art/FX: tweak Fighter.draw for shapes/poses and particle functions
+- Audio: tune Sound methods for envelopes/tones
 
-## Ideas to extend
+## Notes
 
-- Add crouch/block states and damage scaling.
-- Add sprites/animations instead of rectangles.
-- Add special moves (quarter circles, charge).
-- Add sound effects (HTMLAudio).
-- Add simple AI for single-player.
+- No external dependencies. Everything runs locally in the browser.
+- If audio doesn't play, interact with the page once (click or press a key) and ensure your tab isn't muted.
 
 Enjoy!
