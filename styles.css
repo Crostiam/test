@@ -108,7 +108,7 @@ html, body {
   text-align: center;
   margin-top: 6px;
   font-size: 13px;
-  color: rgba(231,233,238,0.8);
+  color: rgba(231,233,238,0.85);
   display: grid;
   gap: 4px;
 }
