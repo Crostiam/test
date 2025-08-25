@@ -1,5 +1,5 @@
 :root {
-  --bg: #0b0d11;
+  --bg: #07090d;
   --fg: #e7e9ee;
   --accent: #7aa2f7;
   --p1: #33d6a6;
@@ -10,7 +10,7 @@
 * { box-sizing: border-box; }
 html, body {
   margin: 0;
-  background: radial-gradient(1000px 600px at 50% -100px, #151a22 0%, var(--bg) 60%, #050608 100%);
+  background: radial-gradient(1000px 600px at 50% -120px, #161b24 0%, #0b0f16 60%, #06080c 100%);
   color: var(--fg);
   font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
   height: 100%;
@@ -27,9 +27,9 @@ html, body {
   height: calc(min(96vw, 960px) * 9 / 16);
   max-height: 540px;
   image-rendering: pixelated;
-  border-radius: 10px;
-  box-shadow: 0 20px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.06) inset;
-  background: linear-gradient(#2a3344 0%, #1f2532 70%, #1a1f2a 100%);
+  border-radius: 12px;
+  box-shadow: 0 24px 70px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.06) inset;
+  background: linear-gradient(#263045 0%, #1d2433 70%, #161c28 100%);
 }
 
 .hud {
@@ -54,22 +54,23 @@ html, body {
   grid-template-columns: 1fr auto;
 }
 .name {
-  background: rgba(255,255,255,0.05);
-  padding: 4px 8px;
-  border-radius: 6px;
-  font-weight: 700;
-  letter-spacing: 0.4px;
+  background: rgba(255,255,255,0.06);
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.06) inset;
 }
 .name.right { justify-self: end; }
 
 .bar-bg {
-  --h: 18px;
+  --h: 20px;
   height: var(--h);
-  background: rgba(255,255,255,0.08);
+  background: linear-gradient(180deg, rgba(255,255,255,0.10), rgba(255,255,255,0.02));
   border-radius: 999px;
   position: relative;
   overflow: hidden;
-  box-shadow: 0 0 0 1px rgba(255,255,255,0.06) inset;
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.1) inset;
 }
 .bar-fg, .bar-chip {
   position: absolute;
@@ -79,8 +80,15 @@ html, body {
   width: 100%;
   border-radius: 999px;
 }
-.bar-fg { background: linear-gradient(90deg, var(--p1), #22b388); }
-.bar-fg.right { background: linear-gradient(270deg, var(--p2), #d95e72); left: auto; right: 0; }
+.bar-fg {
+  background: linear-gradient(90deg, var(--p1), #22b388);
+  box-shadow: 0 0 12px rgba(51,214,166,0.5);
+}
+.bar-fg.right {
+  background: linear-gradient(270deg, var(--p2), #d95e72);
+  left: auto; right: 0;
+  box-shadow: 0 0 12px rgba(247,118,142,0.5);
+}
 .bar-chip { background: var(--chip); }
 .bar-chip.right { left: auto; right: 0; }
 
@@ -89,9 +97,9 @@ html, body {
   font-weight: 900;
   font-size: 22px;
   letter-spacing: 1px;
-  padding: 6px 0;
+  padding: 8px 0;
   background: rgba(255,255,255,0.06);
-  border-radius: 8px;
+  border-radius: 10px;
   box-shadow: 0 0 0 1px rgba(255,255,255,0.06) inset;
 }
 
