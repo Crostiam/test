@@ -1,6 +1,5 @@
-/* Fighthing Street — VS AI, Menu + ensured P2 health bar visibility
-   - Click "Play" to start the round and enable AI behavior
-   - P2 health bar is explicitly rendered and initialized
+/* Fighthing Street — Directional attacks, Space to jump, wall jump, better FX, loser explodes
+   Floating UI: Health/nameplates over fighters + damage popups.
 */
 
 (() => {
@@ -26,10 +25,14 @@
     GRAVITY: 2400,
     GROUND_FRICTION: 1800,
     AIR_DRAG: 0.985,
-    MAX_RUN_SPEED: 360,
-    ACCEL: 2600,
-    JUMP_SPEED: 900,
-    HURTBOX: { w: 56, h: 110 },
+    MAX_RUN_SPEED: 380,
+    ACCEL: 2800,
+    JUMP_SPEED: 940,
+    WALL_SLIDE_MAX: 360,
+    WALL_JUMP_X: 560,
+    WALL_JUMP_Y: 860,
+    WALL_STICK: 0.12,
+    HURTBOX: { w: 58, h: 116 },
     ROUND_TIME: 99,
     PUSHBOX: 0.5,
     HITSTOP_LIGHT: 0.06,
@@ -53,6 +56,17 @@
     return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
   }
   function randRange(a, b) { return a + Math.random() * (b - a); }
+
+  function roundRectPath(ctx, x, y, w, h, r) {
+    const rr = Math.min(r, w/2, h/2);
+    ctx.beginPath();
+    ctx.moveTo(x+rr, y);
+    ctx.arcTo(x+w, y, x+w, y+h, rr);
+    ctx.arcTo(x+w, y+h, x, y+h, rr);
+    ctx.arcTo(x, y+h, x, y, rr);
+    ctx.arcTo(x, y, x+w, y, rr);
+    ctx.closePath();
+  }
 
   class Sound {
     constructor() {
@@ -115,20 +129,23 @@
       src.stop(t0 + dur + decay + 0.05);
     }
     whoosh(light=true) {
-      this.playNoise({ type: 'bandpass', freq: light ? 900 : 650, q: 0.8, dur: light ? 0.09 : 0.14, gain: light ? 0.2 : 0.28 });
+      this.playNoise({ type: 'bandpass', freq: light ? 950 : 650, q: 0.9, dur: light ? 0.08 : 0.14, gain: light ? 0.22 : 0.3 });
     }
     hit(light=true) {
-      this.playNoise({ type: 'lowpass', freq: light ? 1000 : 700, q: 0.9, dur: 0.08, gain: light ? 0.24 : 0.32 });
-      this.playTone({ type: 'sine', freq: light ? 220 : 160, dur: 0.05, attack: 0.001, decay: 0.1, gain: 0.25 });
+      this.playNoise({ type: 'lowpass', freq: light ? 1100 : 800, q: 0.9, dur: 0.08, gain: light ? 0.24 : 0.34 });
+      this.playTone({ type: 'sine', freq: light ? 220 : 160, dur: 0.06, attack: 0.001, decay: 0.12, gain: 0.25 });
     }
     jump() {
-      this.playTone({ type: 'triangle', freq: 440, glideTo: 660, dur: 0.08, attack: 0.001, decay: 0.12, gain: 0.15 });
+      this.playTone({ type: 'triangle', freq: 420, glideTo: 660, dur: 0.08, attack: 0.001, decay: 0.12, gain: 0.15 });
     }
     land() {
-      this.playTone({ type: 'sine', freq: 120, dur: 0.05, attack: 0.001, decay: 0.15, gain: 0.3 });
+      this.playTone({ type: 'sine', freq: 110, dur: 0.05, attack: 0.001, decay: 0.18, gain: 0.3 });
     }
     ko() {
-      this.playTone({ type: 'square', freq: 440, glideTo: 110, dur: 0.5, attack: 0.005, decay: 0.3, gain: 0.2 });
+      this.playTone({ type: 'square', freq: 440, glideTo: 110, dur: 0.5, attack: 0.005, decay: 0.3, gain: 0.22 });
+    }
+    boom() {
+      this.playNoise({ type: 'lowpass', freq: 220, q: 0.9, dur: 0.25, attack: 0.001, decay: 0.5, gain: 0.5 });
     }
     tick() {
       this.playTone({ type: 'square', freq: 880, dur: 0.05, attack: 0.001, decay: 0.05, gain: 0.1 });
@@ -150,9 +167,7 @@
     }
     isDown(code) { return this.pressed.has(code); }
     justPressed(code) { return this.pressed.has(code) && !this.prev.has(code); }
-    update() {
-      this.prev = new Set(this.pressed);
-    }
+    update() { this.prev = new Set(this.pressed); }
   }
 
   class VirtualPad {
@@ -165,21 +180,14 @@
       this.pressed.add(code);
       this.impulses.set(code, Math.max(this.impulses.get(code) || 0, time));
     }
-    setDown(code, down) {
-      if (down) this.pressed.add(code);
-      else this.pressed.delete(code);
-    }
+    setDown(code, down) { if (down) this.pressed.add(code); else this.pressed.delete(code); }
     isDown(code) { return this.pressed.has(code); }
     justPressed(code) { return this.pressed.has(code) && !this.prev.has(code); }
     update(dt) {
       for (const [code, t] of this.impulses.entries()) {
         const nt = t - dt;
-        if (nt <= 0) {
-          this.pressed.delete(code);
-          this.impulses.delete(code);
-        } else {
-          this.impulses.set(code, nt);
-        }
+        if (nt <= 0) { this.pressed.delete(code); this.impulses.delete(code); }
+        else this.impulses.set(code, nt);
       }
       this.prev = new Set(this.pressed);
     }
@@ -204,21 +212,20 @@
   }
 
   const ATTACKS = {
-    light: new Attack({
-      name: 'Light', startup: 0.07, active: 0.06, recovery: 0.22,
-      damage: 6, kbX: 380, kbY: -120, hitstun: 0.22,
-      width: 52, height: 20, offsetX: 38, offsetY: -70
-    }),
-    heavy: new Attack({
-      name: 'Heavy', startup: 0.14, active: 0.10, recovery: 0.46,
-      damage: 12, kbX: 520, kbY: -320, hitstun: 0.36,
-      width: 60, height: 26, offsetX: 46, offsetY: -62
-    }),
-    antiAir: new Attack({
-      name: 'Uppercut', startup: 0.11, active: 0.10, recovery: 0.40,
-      damage: 9, kbX: 120, kbY: -620, hitstun: 0.35,
-      width: 30, height: 60, offsetX: 28, offsetY: -100
-    }),
+    light: {
+      neutral: new Attack({ name: 'Jab Hook', startup: 0.06, active: 0.06, recovery: 0.20, damage: 5, kbX: 300, kbY: -80, hitstun: 0.18, width: 48, height: 18, offsetX: 34, offsetY: -68 }),
+      forward: new Attack({ name: 'Straight', startup: 0.07, active: 0.06, recovery: 0.22, damage: 6, kbX: 360, kbY: -100, hitstun: 0.20, width: 56, height: 18, offsetX: 42, offsetY: -66 }),
+      back: new Attack({ name: 'Backfist', startup: 0.08, active: 0.06, recovery: 0.24, damage: 6, kbX: 320, kbY: -90, hitstun: 0.20, width: 52, height: 18, offsetX: -10, offsetY: -72 }),
+      up: new Attack({ name: 'Uppercut L', startup: 0.10, active: 0.08, recovery: 0.28, damage: 7, kbX: 140, kbY: -540, hitstun: 0.28, width: 26, height: 60, offsetX: 24, offsetY: -98 }),
+      down: new Attack({ name: 'Hammer L', startup: 0.08, active: 0.06, recovery: 0.26, damage: 6, kbX: 220, kbY: 80, hitstun: 0.22, width: 36, height: 40, offsetX: 22, offsetY: -40 }),
+    },
+    heavy: {
+      neutral: new Attack({ name: 'Heavy Hook', startup: 0.12, active: 0.10, recovery: 0.42, damage: 11, kbX: 520, kbY: -240, hitstun: 0.32, width: 66, height: 26, offsetX: 46, offsetY: -64 }),
+      forward: new Attack({ name: 'Heavy Straight', startup: 0.13, active: 0.10, recovery: 0.46, damage: 12, kbX: 560, kbY: -260, hitstun: 0.34, width: 70, height: 24, offsetX: 54, offsetY: -64 }),
+      back: new Attack({ name: 'Spinning Backfist', startup: 0.14, active: 0.10, recovery: 0.48, damage: 12, kbX: 520, kbY: -240, hitstun: 0.34, width: 64, height: 26, offsetX: -12, offsetY: -70 }),
+      up: new Attack({ name: 'Uppercut H', startup: 0.12, active: 0.10, recovery: 0.44, damage: 10, kbX: 160, kbY: -640, hitstun: 0.36, width: 30, height: 70, offsetX: 28, offsetY: -104 }),
+      down: new Attack({ name: 'Hammer H', startup: 0.11, active: 0.08, recovery: 0.42, damage: 10, kbX: 260, kbY: 120, hitstun: 0.30, width: 40, height: 46, offsetX: 26, offsetY: -44 }),
+    }
   };
 
   class Fighter {
@@ -242,6 +249,8 @@
       this.attackT = 0;
       this.hasHitThisAttack = false;
       this._activeJustStarted = false;
+      this.attackDir = 'neutral';
+      this.attackKind = 'light';
 
       this.hitstunT = 0;
 
@@ -253,6 +262,10 @@
       this.animT = 0;
       this.landedThisFrame = false;
       this.flashT = 0;
+
+      this.touchWall = 0;
+      this.wallStickT = 0;
+      this.wallJumpLock = 0;
     }
 
     hurtbox() {
@@ -286,13 +299,12 @@
       return this.state !== 'attack' && this.state !== 'hitstun' && this.state !== 'ko';
     }
 
-    startAttack(a) {
+    startDirectionalAttack(kind, dir) {
       if (this.state === 'ko') return;
-      if (this.state === 'attack' || this.state === 'hitstun') {
-        this.attackBuffered = a;
-        return;
-      }
-      this.attack = a;
+      if (this.state === 'attack' || this.state === 'hitstun') { this.attackBuffered = { kind, dir }; return; }
+      this.attackKind = kind;
+      this.attackDir = dir;
+      this.attack = ATTACKS[kind][dir];
       this.attackT = 0;
       this.state = 'attack';
       this.hasHitThisAttack = false;
@@ -316,9 +328,20 @@
       this.facing = this.pos.x < opponent.pos.x ? 1 : -1;
     }
 
+    aimDirFromInput(input) {
+      if (input.isDown(this.controls.upAim)) return 'up';
+      if (input.isDown(this.controls.downAim)) return 'down';
+      const left = input.isDown(this.controls.left);
+      const right = input.isDown(this.controls.right);
+      if (left && !right) return this.facing === -1 ? 'forward' : 'back';
+      if (right && !left) return this.facing === 1 ? 'forward' : 'back';
+      return 'neutral';
+    }
+
     handleInput(input, dt) {
       if (this.state === 'ko') return;
 
+      // Movement
       if (this.canControl()) {
         let move = 0;
         if (input.isDown(this.controls.left)) move -= 1;
@@ -337,11 +360,16 @@
         else if (this.onGround && this.state !== 'attack') this.state = 'idle';
       }
 
+      // Jump buffer
       if (input.justPressed(this.controls.jump)) {
-        this.jumpBuffered = 0.12;
+        this.jumpBuffered = 0.14;
       }
       if (this.jumpBuffered > 0) this.jumpBuffered -= dt;
 
+      if (this.wallStickT > 0) this.wallStickT -= dt;
+      if (this.wallJumpLock > 0) this.wallJumpLock -= dt;
+
+      // Jumps: ground or wall
       if ((this.canControl() || this.state === 'attack') && this.jumpBuffered > 0) {
         if (this.onGround) {
           this.vel.y = -CONFIG.JUMP_SPEED;
@@ -349,13 +377,26 @@
           this.state = 'jump';
           this.jumpBuffered = 0;
           SFX.jump();
+        } else if (this.touchWall !== 0 && this.wallJumpLock <= 0) {
+          const away = -this.touchWall;
+          this.vel.x = away * CONFIG.WALL_JUMP_X;
+          this.vel.y = -CONFIG.WALL_JUMP_Y;
+          this.facing = away;
+          this.wallJumpLock = 0.18;
+          this.wallStickT = 0;
+          this.jumpBuffered = 0;
+          SFX.jump();
         }
       }
 
-      if (input.justPressed(this.controls.light)) this.startAttack(ATTACKS.light);
+      // Directional attacks
+      if (input.justPressed(this.controls.light)) {
+        const dir = this.aimDirFromInput(input);
+        this.startDirectionalAttack('light', dir);
+      }
       if (input.justPressed(this.controls.heavy)) {
-        if (!this.onGround) this.startAttack(ATTACKS.antiAir);
-        else this.startAttack(ATTACKS.heavy);
+        const dir = this.aimDirFromInput(input);
+        this.startDirectionalAttack('heavy', dir);
       }
     }
 
@@ -375,7 +416,7 @@
           if (this.attackBuffered) {
             const buffered = this.attackBuffered;
             this.attackBuffered = null;
-            this.startAttack(buffered);
+            this.startDirectionalAttack(buffered.kind, buffered.dir);
           }
         }
       }
@@ -388,6 +429,22 @@
       }
 
       this.vel.y += CONFIG.GRAVITY * dt;
+
+      // Wall detect
+      this.touchWall = 0;
+      const half = this.w / 2;
+      const atLeft = this.pos.x <= half + 1;
+      const atRight = this.pos.x >= CONFIG.WIDTH - half - 1;
+      if (!this.onGround) {
+        if (atLeft) this.touchWall = -1;
+        else if (atRight) this.touchWall = 1;
+      }
+
+      // Wall slide
+      if (!this.onGround && this.touchWall !== 0) {
+        this.vel.y = Math.min(this.vel.y, CONFIG.WALL_SLIDE_MAX);
+        this.wallStickT = CONFIG.WALL_STICK;
+      }
 
       if (this.onGround && this.canControl()) {
         const s = Math.sign(this.vel.x);
@@ -402,15 +459,11 @@
       this.pos.x += this.vel.x * dt;
       this.pos.y += this.vel.y * dt;
 
-      const half = this.w / 2;
-      if (this.pos.x < half) { this.pos.x = half; this.vel.x = 0; }
-      if (this.pos.x > CONFIG.WIDTH - half) { this.pos.x = CONFIG.WIDTH - half; this.vel.x = 0; }
+      if (this.pos.x < half) { this.pos.x = half; this.vel.x = Math.max(0, this.vel.x); }
+      if (this.pos.x > CONFIG.WIDTH - half) { this.pos.x = CONFIG.WIDTH - half; this.vel.x = Math.min(0, this.vel.x); }
 
       if (this.pos.y >= CONFIG.FLOOR_Y) {
-        if (!this.onGround) {
-          this.landedThisFrame = true;
-          SFX.land();
-        }
+        if (!this.onGround) { this.landedThisFrame = true; SFX.land(); }
         this.pos.y = CONFIG.FLOOR_Y;
         this.vel.y = 0;
         if (!this.onGround) {
@@ -430,13 +483,15 @@
     }
 
     draw(ctx, debug = false, time = 0, camShake = { x: 0, y: 0 }) {
-      const shadowW = this.w * 0.9;
-      const shadowH = 10;
+      // Shadow
+      const shadowW = this.w * 0.95;
+      const shadowH = 11;
       ctx.fillStyle = COLORS.shadow;
       ctx.beginPath();
-      ctx.ellipse(this.pos.x + camShake.x * 0.1, CONFIG.FLOOR_Y + 2 + camShake.y * 0.1, shadowW, shadowH, 0, 0, Math.PI * 2);
+      ctx.ellipse(this.pos.x + camShake.x * 0.1, CONFIG.FLOOR_Y + 3 + camShake.y * 0.1, shadowW, shadowH, 0, 0, Math.PI * 2);
       ctx.fill();
 
+      // Body
       ctx.save();
       ctx.translate(this.pos.x + camShake.x, this.pos.y + camShake.y);
       ctx.scale(this.facing, 1);
@@ -462,44 +517,111 @@
       ctx.save();
       ctx.translate(0, idleBob);
       ctx.rotate((runSwing * 0.02 + jumpTilt * Math.PI / 180));
+
+      // Torso
+      const gx = -bodyW/2, gy = -bodyH, gw = bodyW, gh = bodyH;
+      const grad = ctx.createLinearGradient(0, gy, 0, gy + gh);
+      grad.addColorStop(0, 'rgba(255,255,255,0.12)');
+      grad.addColorStop(0.5, 'rgba(0,0,0,0.0)');
+      grad.addColorStop(1, 'rgba(0,0,0,0.2)');
       ctx.fillStyle = bodyColor;
-      ctx.fillRect(-bodyW/2, -bodyH, bodyW, bodyH);
+      roundRectPath(ctx, gx, gy, gw, gh, 10);
+      ctx.fill();
+      ctx.save();
+      ctx.clip();
+      ctx.fillStyle = grad;
+      ctx.fillRect(gx, gy, gw, gh);
+      ctx.restore();
+      ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+      ctx.lineWidth = 2;
+      roundRectPath(ctx, gx, gy, gw, gh, 10);
+      ctx.stroke();
 
-      ctx.fillStyle = 'rgba(255,255,255,0.85)';
-      ctx.fillRect(bodyW*0.15, -bodyH*0.8, 6, 10);
+      // Face stripe
+      ctx.fillStyle = 'rgba(255,255,255,0.9)';
+      ctx.fillRect(bodyW*0.15, -bodyH*0.8, 6, 11);
 
-      const armW = 10;
-      ctx.fillStyle = 'rgba(255,255,255,0.15)';
-      const attackPose = this.state === 'attack' ? clamp((this.attackT / (this.attack?.total() || 1)) * 1.2, 0, 1) : 0;
-      const armUp = -bodyH * 0.65;
-      const armH = bodyH * 0.55;
+      // Arms + poses
+      const armW = 12;
+      const armH = bodyH * 0.58;
+      const armUp = -bodyH * 0.64;
+      const tRatio = this.attack ? clamp(this.attackT / this.attack.total(), 0, 1) : 0;
+      const windup = this.attack ? clamp((this.attack.startup ? (this.attack.startup - Math.min(this.attackT, this.attack.startup)) / this.attack.startup : 0), 0, 1) : 0;
 
+      const dir = this.attack ? this.attackDir : 'neutral';
+      let frontAngle = Math.sin(time * 12) * 10 * (this.state === 'walk' ? 1 : 0) * 0.05;
+      let backAngle = -frontAngle;
+
+      if (this.state === 'attack') {
+        switch (dir) {
+          case 'neutral':
+            frontAngle += -Math.PI * 0.6 * (0.3 + tRatio);
+            backAngle += Math.PI * 0.15 * (0.2 + windup);
+            break;
+          case 'forward':
+            frontAngle += -Math.PI * 0.15 - Math.PI * 1.0 * tRatio;
+            backAngle += Math.PI * 0.05 * (0.2 + windup);
+            break;
+          case 'back':
+            frontAngle += Math.PI * 0.1 * (0.2 + windup);
+            backAngle += -Math.PI * 0.9 * (0.3 + tRatio);
+            break;
+          case 'up':
+            frontAngle += -Math.PI * (0.4 + 0.8 * tRatio);
+            backAngle += Math.PI * 0.2 * (0.2 + windup);
+            break;
+          case 'down':
+            frontAngle += Math.PI * (0.35 + 0.7 * tRatio);
+            backAngle += -Math.PI * 0.1 * (0.2 + windup);
+            break;
+        }
+      }
+
+      // Back arm
+      ctx.fillStyle = 'rgba(255,255,255,0.16)';
       ctx.save();
       ctx.translate(-bodyW/2 - armW, armUp);
-      ctx.rotate((-runSwing * 0.05) - attackPose * 0.4);
-      ctx.fillRect(0, 0, armW, armH);
+      ctx.rotate(backAngle);
+      roundRectPath(ctx, 0, 0, armW, armH, 5);
+      ctx.fill();
       ctx.restore();
 
+      // Front arm
       ctx.save();
       ctx.translate(bodyW/2, armUp);
-      ctx.rotate((runSwing * 0.05) + attackPose * 0.7);
-      ctx.fillRect(0, 0, armW, armH);
-      ctx.fillStyle = 'rgba(255,255,255,0.6)';
-      ctx.fillRect(-2, armH - 10, armW + 4, 10);
+      ctx.rotate(frontAngle);
+      roundRectPath(ctx, 0, 0, armW, armH, 5);
+      ctx.fillStyle = 'rgba(255,255,255,0.18)';
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.7)';
+      ctx.fillRect(-2, armH - 11, armW + 4, 11);
       ctx.restore();
 
-      ctx.restore();
+      ctx.restore(); // torso
 
+      // Attack swing trails
       if (this.attackIsActiveNow()) {
-        ctx.save();
-        ctx.translate(0, idleBob);
-        ctx.strokeStyle = 'rgba(255,255,255,0.15)';
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        const r = 40;
-        ctx.arc(this.pos.x + camShake.x + this.facing * (this.w * 0.6), this.pos.y + camShake.y - this.h * 0.6, r, Math.PI * 0.2, -Math.PI * 0.2, this.facing < 0);
-        ctx.stroke();
-        ctx.restore();
+        const trails = 3;
+        for (let i = 0; i < trails; i++) {
+          ctx.save();
+          const a = (trails - i) / trails;
+          ctx.strokeStyle = `rgba(255,255,255,${0.12 * a})`;
+          ctx.lineWidth = 3 * a;
+          ctx.beginPath();
+          const r = 44 + i * 6;
+          const ox = this.facing * (this.w * 0.62);
+          const oy = -this.h * 0.6;
+          const cx = this.pos.x + camShake.x + ox;
+          const cy = this.pos.y + camShake.y + oy;
+          const ccw = this.facing < 0;
+          let start = Math.PI * 0.25, end = -Math.PI * 0.25;
+          if (dir === 'up') { start = Math.PI * 0.9; end = Math.PI * 0.2; }
+          if (dir === 'down') { start = -Math.PI * 0.1; end = -Math.PI * 0.9; }
+          if (dir === 'back') { start = Math.PI * 0.75; end = -Math.PI * 0.75; }
+          ctx.arc(cx, cy, r, start, end, ccw);
+          ctx.stroke();
+          ctx.restore();
+        }
       }
 
       ctx.restore();
@@ -525,26 +647,81 @@
       this.maxLife = life;
       this.size = size;
       this.color = color;
+      this.rot = Math.random() * Math.PI * 2;
+      this.rotSpd = randRange(-6, 6);
     }
     step(dt) {
       this.life -= dt;
       this.x += this.vx * dt;
       this.y += this.vy * dt;
-      this.vy += 1200 * dt * 0.2;
+      this.vy += 1200 * dt * 0.28;
+      this.rot += this.rotSpd * dt;
     }
     draw(ctx) {
       const t = clamp(this.life / this.maxLife, 0, 1);
       ctx.globalAlpha = t;
+      ctx.save();
+      ctx.translate(this.x, this.y);
+      ctx.rotate(this.rot);
       ctx.fillStyle = this.color;
-      ctx.fillRect(this.x - this.size/2, this.y - this.size/2, this.size, this.size);
+      ctx.fillRect(-this.size/2, -this.size/2, this.size, this.size);
+      ctx.restore();
+      ctx.globalAlpha = 1;
+    }
+  }
+  class Shockwave {
+    constructor(x, y) {
+      this.x = x; this.y = y;
+      this.life = 0.45;
+      this.maxLife = 0.45;
+    }
+    step(dt) { this.life -= dt; }
+    draw(ctx) {
+      const t = 1 - clamp(this.life / this.maxLife, 0, 1);
+      const r = 20 + t * 140;
+      ctx.strokeStyle = `rgba(255,255,255,${0.22 * (1 - t)})`;
+      ctx.lineWidth = 3 + 4 * (1 - t);
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, r, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+
+  // Floating damage text
+  class DamageText {
+    constructor(x, y, text, color) {
+      this.x = x; this.y = y;
+      this.vx = randRange(-40, 40);
+      this.vy = -120;
+      this.life = 0.7;
+      this.maxLife = 0.7;
+      this.text = text;
+      this.color = color;
+      this.size = 16;
+    }
+    step(dt) {
+      this.life -= dt;
+      this.x += this.vx * dt;
+      this.y += this.vy * dt;
+      this.vy += 360 * dt;
+    }
+    draw(ctx) {
+      const t = clamp(this.life / this.maxLife, 0, 1);
+      ctx.globalAlpha = t;
+      ctx.font = `900 ${this.size}px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial`;
+      ctx.fillStyle = this.color;
+      ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+      ctx.lineWidth = 3;
+      ctx.strokeText(this.text, this.x, this.y);
+      ctx.fillText(this.text, this.x, this.y);
       ctx.globalAlpha = 1;
     }
   }
 
   function spawnHitSparks(particles, x, y, color) {
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 10; i++) {
       const a = Math.random() * Math.PI * 2;
-      const sp = randRange(140, 320);
+      const sp = randRange(180, 360);
       particles.push(new Particle(
         x + Math.cos(a)*4, y + Math.sin(a)*4,
         Math.cos(a) * sp, Math.sin(a) * sp,
@@ -567,13 +744,27 @@
       ));
     }
   }
+  function spawnExplosion(particles, shocks, x, y, baseColor) {
+    for (let i = 0; i < 90; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const sp = randRange(200, 720);
+      const col = Math.random() < 0.6 ? 'rgba(255,255,255,0.9)' : baseColor.replace(')', ',0.8)').replace('rgb', 'rgba');
+      particles.push(new Particle(
+        x + Math.cos(a)*6, y + Math.sin(a)*6,
+        Math.cos(a) * sp, Math.sin(a) * sp - randRange(0, 200),
+        randRange(0.25, 0.6),
+        randRange(2, 5),
+        col
+      ));
+    }
+    shocks.push(new Shockwave(x, y));
+  }
 
   const DIFFS = [
-    { name: 'Easy', reaction: 0.26, desired: 120, jumpProb: 0.04, attackCD: 0.65, bravery: 0.5 },
-    { name: 'Normal', reaction: 0.18, desired: 100, jumpProb: 0.07, attackCD: 0.45, bravery: 0.7 },
-    { name: 'Hard', reaction: 0.12, desired: 90, jumpProb: 0.10, attackCD: 0.34, bravery: 0.9 },
+    { name: 'Easy', reaction: 0.26, desired: 120, jumpProb: 0.04, attackCD: 0.65, bravery: 0.5, heavyBias: 0.35 },
+    { name: 'Normal', reaction: 0.18, desired: 100, jumpProb: 0.07, attackCD: 0.45, bravery: 0.7, heavyBias: 0.5 },
+    { name: 'Hard', reaction: 0.12, desired: 90, jumpProb: 0.10, attackCD: 0.34, bravery: 0.9, heavyBias: 0.65 },
   ];
-
   class AIController {
     constructor(fighter, opponent, pad) {
       this.f = fighter;
@@ -585,17 +776,13 @@
       this.diffIndex = 1;
       this.enabled = false;
     }
-    setDifficulty(idx) {
-      this.diffIndex = ((idx % DIFFS.length) + DIFFS.length) % DIFFS.length;
-    }
+    setDifficulty(idx) { this.diffIndex = ((idx % DIFFS.length) + DIFFS.length) % DIFFS.length; }
     get diff() { return DIFFS[this.diffIndex]; }
     update(dt) {
       this.pad.update(dt);
       if (!this.enabled) return;
-
       this.t += dt;
       if (this.coolAttack > 0) this.coolAttack -= dt;
-
       if (this.f.state === 'hitstun' || this.f.state === 'ko') return;
 
       this.nextThink -= dt;
@@ -610,6 +797,8 @@
 
       this.pad.setDown(f.controls.left, false);
       this.pad.setDown(f.controls.right, false);
+      this.pad.setDown(f.controls.upAim, false);
+      this.pad.setDown(f.controls.downAim, false);
 
       if (distX > this.diff.desired + 20) {
         if (f.pos.x < o.pos.x) this.pad.setDown(f.controls.right, true);
@@ -624,30 +813,44 @@
         else this.pad.setDown(f.controls.right, true);
       }
 
+      let aimUp = false, aimDown = false, aimToward = false, aimBack = false;
+      if (!o.onGround && (o.pos.y < f.pos.y - 40)) aimUp = true;
+      else if (o.pos.y > f.pos.y - 20) aimDown = Math.random() < 0.15;
+      if (f.pos.x < o.pos.x) { aimToward = f.facing === 1; aimBack = !aimToward; }
+      else { aimToward = f.facing === -1; aimBack = !aimToward; }
+
+      if (aimUp) this.pad.setDown(f.controls.upAim, true);
+      else if (aimDown) this.pad.setDown(f.controls.downAim, true);
+      else if (aimToward) {
+        if (f.facing === 1) this.pad.setDown(f.controls.right, true);
+        else this.pad.setDown(f.controls.left, true);
+      } else if (aimBack) {
+        if (f.facing === 1) this.pad.setDown(f.controls.left, true);
+        else this.pad.setDown(f.controls.right, true);
+      }
+
       if (onGround && distX > this.diff.desired + 40 && Math.random() < this.diff.jumpProb) {
         this.pad.press(f.controls.jump, 0.08);
       }
 
       const oppRising = !o.onGround && o.vel.y < -50 && mid;
       if (onGround && oppRising && this.coolAttack <= 0) {
+        this.pad.setDown(f.controls.upAim, true);
         this.pad.press(f.controls.heavy);
         this.coolAttack = this.diff.attackCD;
         return;
       }
 
-      if (onGround && this.coolAttack <= 0) {
-        if (close && Math.random() < 0.6) {
-          this.pad.press(f.controls.heavy);
-          this.coolAttack = this.diff.attackCD;
-        } else if (mid && Math.random() < 0.75) {
-          this.pad.press(f.controls.light);
-          this.coolAttack = this.diff.attackCD * randRange(0.7, 1.2);
-        }
-      }
+      const doHeavy = Math.random() < this.diff.heavyBias;
 
-      if (!onGround && this.coolAttack <= 0 && Math.random() < 0.5) {
-        this.pad.press(f.controls.heavy);
-        this.coolAttack = this.diff.attackCD;
+      if (this.coolAttack <= 0) {
+        if (onGround && (close || mid)) {
+          this.pad.press(doHeavy ? f.controls.heavy : f.controls.light);
+          this.coolAttack = this.diff.attackCD * randRange(0.8, 1.2);
+        } else if (!onGround && Math.random() < 0.5) {
+          this.pad.press(doHeavy ? f.controls.heavy : f.controls.light);
+          this.coolAttack = this.diff.attackCD;
+        }
       }
     }
   }
@@ -658,13 +861,17 @@
       this.p1 = new Fighter(1, CONFIG.WIDTH * 0.3, COLORS.p1, {
         left: 'KeyA',
         right: 'KeyD',
-        jump: 'KeyW',
+        upAim: 'KeyW',
+        downAim: 'KeyS',
+        jump: 'Space',
         light: 'KeyJ',
         heavy: 'KeyK',
       });
       this.p2 = new Fighter(2, CONFIG.WIDTH * 0.7, COLORS.p2, {
         left: 'ArrowLeft',
         right: 'ArrowRight',
+        upAim: 'ArrowUp',
+        downAim: 'ArrowDown',
         jump: 'ArrowUp',
         light: 'Digit1',
         heavy: 'Digit2',
@@ -687,13 +894,13 @@
       this.camShakeT = 0;
       this.camShakeMag = 0;
       this.particles = [];
+      this.shockwaves = [];
+      this.texts = []; // damage numbers
       this.lastTimerWhole = CONFIG.ROUND_TIME;
+      this.flashAlpha = 0;
 
       window.addEventListener('keydown', (e) => {
-        if (this.inMenu && (e.code === 'Enter' || e.code === 'Space')) {
-          this.startGame();
-          return;
-        }
+        if (this.inMenu && (e.code === 'Enter' || e.code === 'Space')) { this.startGame(); return; }
         if (e.code === 'KeyR') this.resetRound();
         if (e.code === 'KeyP') this.togglePause();
         if (e.code === 'Backquote') this.debug = !this.debug;
@@ -707,7 +914,7 @@
           this.flashMessage(`AI: ${this.ai.diff.name}`, 0.8);
         }
       });
-      UI.btnPlay.addEventListener('click', () => this.startGame());
+      UI.btnPlay?.addEventListener('click', () => this.startGame());
 
       this.updateUI(true);
       requestAnimationFrame(this.loop.bind(this));
@@ -751,6 +958,10 @@
         p.hitstunT = 0;
         p.hasHitThisAttack = false;
         p.flashT = 0;
+        p.attackDir = 'neutral';
+        p.attackKind = 'light';
+        p.wallStickT = 0;
+        p.wallJumpLock = 0;
       }
       this.timeLeft = CONFIG.ROUND_TIME;
       this.roundOver = false;
@@ -758,15 +969,24 @@
       this.camShakeT = 0;
       this.camShakeMag = 0;
       this.particles = [];
+      this.shockwaves = [];
+      this.texts = [];
       this.lastTimerWhole = CONFIG.ROUND_TIME;
+      this.flashAlpha = 0;
       UI.messages.textContent = '';
       this.updateUI(true);
     }
 
-    endRound(msg) {
+    endRound(msg, explodedFighter = null) {
       this.roundOver = true;
       UI.messages.textContent = msg + ' — Press R to reset';
       SFX.ko();
+      if (explodedFighter) {
+        const col = explodedFighter === this.p1 ? 'rgba(51,214,166,1)' : 'rgba(247,118,142,1)';
+        spawnExplosion(this.particles, this.shockwaves, explodedFighter.pos.x, explodedFighter.pos.y - explodedFighter.h * 0.6, col);
+        this.flashAlpha = 0.45;
+        SFX.boom();
+      }
     }
 
     loop(ts) {
@@ -786,6 +1006,11 @@
         this.hitstopT -= dt;
         this.ai.update(dt);
         for (const p of this.players) if (p.flashT > 0) p.flashT -= dt;
+        for (let i = this.shockwaves.length - 1; i >= 0; i--) {
+          this.shockwaves[i].step(dt);
+          if (this.shockwaves[i].life <= 0) this.shockwaves.splice(i,1);
+        }
+        this.flashAlpha = Math.max(0, this.flashAlpha - dt * 1.2);
         return;
       }
 
@@ -806,6 +1031,7 @@
         }
       }
 
+      // Inputs and facing
       this.p1.handleInput(this.kb, dt);
       this.ai.update(dt);
       this.p2.handleInput(this.aiPad, dt);
@@ -813,40 +1039,60 @@
       this.p1.updateFacing(this.p2);
       this.p2.updateFacing(this.p1);
 
+      // Physics/attacks
       for (const p of this.players) p.step(dt);
 
+      // SFX on active start
       for (const p of this.players) {
         if (p._activeJustStarted) {
-          SFX.whoosh(p.attack?.damage <= 9);
+          SFX.whoosh(p.attackKind === 'light');
           p._activeJustStarted = false;
         }
       }
 
+      // Push, land dust
       this.resolvePush();
-
       for (const p of this.players) {
         if (p.landedThisFrame) spawnDust(this.particles, p.pos.x, CONFIG.FLOOR_Y);
       }
 
+      // Hits
       if (!this.roundOver) this.resolveHits();
 
+      // KO + explosion
       if (!this.roundOver) {
         if (this.p1.state === 'ko' || this.p2.state === 'ko') {
           const msg = this.p1.state === 'ko' && this.p2.state === 'ko'
             ? 'Double KO!'
             : (this.p1.state === 'ko' ? 'AI Wins!' : 'You Win!');
-          this.endRound(msg);
+          const exploded = this.p1.state === 'ko' && this.p2.state !== 'ko' ? this.p1
+                            : this.p2.state === 'ko' && this.p1.state !== 'ko' ? this.p2
+                            : null;
+          this.endRound(msg, exploded);
         }
       }
 
+      // Particles/texts/shockwaves
       for (let i = this.particles.length - 1; i >= 0; i--) {
         const pt = this.particles[i];
         pt.step(dt);
         if (pt.life <= 0) this.particles.splice(i, 1);
       }
+      for (let i = this.texts.length - 1; i >= 0; i--) {
+        const t = this.texts[i];
+        t.step(dt);
+        if (t.life <= 0) this.texts.splice(i, 1);
+      }
+      for (let i = this.shockwaves.length - 1; i >= 0; i--) {
+        const sw = this.shockwaves[i];
+        sw.step(dt);
+        if (sw.life <= 0) this.shockwaves.splice(i, 1);
+      }
 
+      // Camera/flash
       if (this.camShakeT > 0) this.camShakeT -= dt;
       if (this.camShakeT <= 0) this.camShakeMag = 0;
+      this.flashAlpha = Math.max(0, this.flashAlpha - dt * 1.2);
 
       this.updateUI();
     }
@@ -860,7 +1106,7 @@
       const centerB = b.x + b.w / 2;
       const overlapX = (a.w / 2 + b.w / 2) - Math.abs(centerA - centerB);
       if (overlapX > 0) {
-        const push = overlapX * 0.5;
+        const push = overlapX * CONFIG.PUSHBOX;
         const dir = centerA < centerB ? -1 : 1;
         this.p1.pos.x += push * dir;
         this.p2.pos.x -= push * dir;
@@ -881,13 +1127,15 @@
           defender.takeHit(attacker, attacker.attack);
           attacker.hasHitThisAttack = true;
 
-          const heavy = attacker.attack.damage > 9;
-          this.hitstopT = heavy ? 0.10 : 0.06;
+          const heavy = attacker.attack.damage >= 10;
+          this.hitstopT = heavy ? CONFIG.HITSTOP_HEAVY : CONFIG.HITSTOP_LIGHT;
           this.camShakeT = heavy ? 0.22 : 0.14;
-          this.camShakeMag = heavy ? 10 : 5;
+          this.camShakeMag = heavy ? CONFIG.CAM_SHAKE_HEAVY : CONFIG.CAM_SHAKE_LIGHT;
           const cx = hb.x + hb.w / 2;
           const cy = hb.y + hb.h / 2;
           spawnHitSparks(this.particles, cx, cy, 'rgba(255,255,255,0.9)');
+          // Damage number over defender
+          this.texts.push(new DamageText(defender.pos.x, defender.pos.y - defender.h - 10, `-${attacker.attack.damage}`, 'rgba(255,255,255,0.95)'));
           SFX.hit(!heavy);
         }
       };
@@ -909,32 +1157,95 @@
       if (UI.timer.textContent !== String(t) || force) UI.timer.textContent = String(t);
     }
 
+    drawFighterUI(f, isAI = false) {
+      // Name and compact HP bar above the fighter
+      const padX = 6;
+      const padY = 4;
+      const barW = 90;
+      const barH = 8;
+      let x = clamp(f.pos.x, 60, CONFIG.WIDTH - 60);
+      const y = f.pos.y - f.h - 26;
+
+      const name = isAI ? `AI (${this.ai.diff.name})` : 'You';
+      const col = isAI ? COLORS.p2 : COLORS.p1;
+
+      // Name background
+      ctx.save();
+      ctx.font = '900 12px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial';
+      const nameW = Math.max(ctx.measureText(name).width, barW);
+      const boxW = nameW + padX * 2;
+      const boxH = 14 + padY * 2 + barH + 6;
+
+      // Back panel
+      ctx.globalAlpha = 0.9;
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      roundRectPath(ctx, x - boxW/2, y - boxH, boxW, boxH, 8);
+      ctx.fill();
+
+      // Border glow
+      ctx.strokeStyle = col;
+      ctx.globalAlpha = 0.65;
+      ctx.lineWidth = 1.5;
+      roundRectPath(ctx, x - boxW/2, y - boxH, boxW, boxH, 8);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+
+      // Name text
+      ctx.fillStyle = '#ffffff';
+      ctx.textBaseline = 'top';
+      ctx.fillText(name, x - ctx.measureText(name).width/2, y - boxH + padY + 1);
+
+      // Small HP bar
+      const hpFrac = clamp(f.health / 100, 0, 1);
+      const chipFrac = clamp(f.chipHealth / 100, 0, 1);
+      const barX = x - barW/2;
+      const barY = y - barH - 6;
+
+      // Background
+      ctx.fillStyle = 'rgba(255,255,255,0.12)';
+      roundRectPath(ctx, barX, barY, barW, barH, 4);
+      ctx.fill();
+      // Chip
+      ctx.fillStyle = 'rgba(255,255,255,0.25)';
+      roundRectPath(ctx, barX, barY, barW * chipFrac, barH, 4);
+      ctx.fill();
+      // HP
+      ctx.fillStyle = col;
+      roundRectPath(ctx, barX, barY, barW * hpFrac, barH, 4);
+      ctx.fill();
+
+      ctx.restore();
+    }
+
     draw() {
       const { WIDTH, HEIGHT, FLOOR_Y } = CONFIG;
 
+      // Camera shake
       let cam = { x: 0, y: 0 };
       if (this.camShakeT > 0) {
         cam.x = (Math.random() * 2 - 1) * this.camShakeMag;
         cam.y = (Math.random() * 2 - 1) * this.camShakeMag * 0.6;
       }
 
+      // Background
       ctx.clearRect(0, 0, WIDTH, HEIGHT);
-
-      for (let i = 0; i < 4; i++) {
-        const h = 80 + i * 40;
-        const y = FLOOR_Y - 160 - i * 26;
-        ctx.fillStyle = `rgba(255,255,255,${0.04 + i*0.02})`;
-        ctx.fillRect(30 + i*140, y, 120, h);
-        ctx.fillRect(300 + i*120, y + 10, 100, h - 20);
-        ctx.fillRect(560 + i*140, y - 6, 140, h + 10);
-        ctx.fillRect(820 + i*80, y + 6, 70, h - 12);
+      const t = performance.now() / 1000;
+      for (let layer = 0; layer < 5; layer++) {
+        const y = FLOOR_Y - 180 - layer * 26;
+        const alpha = 0.04 + layer * 0.03;
+        const wob = Math.sin(t * (0.3 + layer * 0.1)) * 6;
+        ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+        ctx.fillRect(30 + wob + layer*110, y, 120, 80 + layer * 40);
+        ctx.fillRect(300 - wob + layer*100, y + 10, 100, 60 + layer * 35);
+        ctx.fillRect(560 + wob + layer*120, y - 6, 140, 70 + layer * 42);
+        ctx.fillRect(820 - wob + layer*70, y + 6, 70, 50 + layer * 30);
       }
 
-      const grd = ctx.createLinearGradient(0, FLOOR_Y - 50, 0, HEIGHT);
-      grd.addColorStop(0, 'rgba(0,0,0,0.08)');
-      grd.addColorStop(1, 'rgba(0,0,0,0.35)');
+      const grd = ctx.createLinearGradient(0, FLOOR_Y - 60, 0, HEIGHT);
+      grd.addColorStop(0, 'rgba(0,0,0,0.10)');
+      grd.addColorStop(1, 'rgba(0,0,0,0.4)');
       ctx.fillStyle = grd;
-      ctx.fillRect(0, FLOOR_Y - 40, WIDTH, HEIGHT - (FLOOR_Y - 40));
+      ctx.fillRect(0, FLOOR_Y - 50, WIDTH, HEIGHT - (FLOOR_Y - 50));
 
       ctx.strokeStyle = COLORS.stageLine;
       ctx.lineWidth = 2;
@@ -945,12 +1256,29 @@
 
       const now = performance.now() / 1000;
 
+      // Fighters
       this.p1.draw(ctx, this.debug, now, cam);
       this.p2.draw(ctx, this.debug, now, cam);
 
+      // Particles and shockwaves behind UI
       for (const pt of this.particles) pt.draw(ctx);
+      for (const sw of this.shockwaves) sw.draw(ctx);
+
+      // Floating UI above fighters (AI included)
+      this.drawFighterUI(this.p1, false);
+      this.drawFighterUI(this.p2, true);
+
+      // Damage numbers
+      for (const txt of this.texts) txt.draw(ctx);
+
+      // Screen flash
+      if (this.flashAlpha > 0) {
+        ctx.fillStyle = `rgba(255,255,255,${this.flashAlpha})`;
+        ctx.fillRect(0, 0, WIDTH, HEIGHT);
+      }
     }
   }
 
+  // Boot
   new Game();
 })();
