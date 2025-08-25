@@ -1,7 +1,7 @@
-/* Fighthing Street — Crouch state, more unique attacks, super armor (no stagger while attacking)
-   - Hold S to crouch (reduced hurtbox + unique crouch attacks)
-   - While attacking, you will not be staggered (no hitstun/knockback), but you still take damage
-   - Directional attacks remain (Up/Down/Forward/Back/Neutral) + Crouch variants
+/* Fighthing Street — Unique attacks, no slow during attack, back-to-block (high/low), crouch
+   - No "stagger/slow" while attacking: you can keep moving at near full speed during attacks
+   - Back to block (chip damage + blockstun). Back+Down for low block. AI will also block.
+   - Directional attacks now have unique movement (lunges/backsteps), guard levels, and poses
 */
 
 (() => {
@@ -44,6 +44,9 @@
     HITSTOP_HEAVY: 0.10,
     CAM_SHAKE_LIGHT: 5,
     CAM_SHAKE_HEAVY: 10,
+    CHIP_MULT: 0.2,     // chip damage portion while blocking
+    BLOCKSTUN_LIGHT: 0.12,
+    BLOCKSTUN_HEAVY: 0.18,
   };
 
   const COLORS = {
@@ -138,21 +141,11 @@
       this.playNoise({ type: 'lowpass', freq: light ? 1100 : 800, q: 0.9, dur: 0.08, gain: light ? 0.24 : 0.34 });
       this.playTone({ type: 'sine', freq: light ? 220 : 160, dur: 0.06, attack: 0.001, decay: 0.12, gain: 0.25 });
     }
-    jump() {
-      this.playTone({ type: 'triangle', freq: 420, glideTo: 660, dur: 0.08, attack: 0.001, decay: 0.12, gain: 0.15 });
-    }
-    land() {
-      this.playTone({ type: 'sine', freq: 110, dur: 0.05, attack: 0.001, decay: 0.18, gain: 0.3 });
-    }
-    ko() {
-      this.playTone({ type: 'square', freq: 440, glideTo: 110, dur: 0.5, attack: 0.005, decay: 0.3, gain: 0.22 });
-    }
-    boom() {
-      this.playNoise({ type: 'lowpass', freq: 220, q: 0.9, dur: 0.25, attack: 0.001, decay: 0.5, gain: 0.5 });
-    }
-    tick() {
-      this.playTone({ type: 'square', freq: 880, dur: 0.05, attack: 0.001, decay: 0.05, gain: 0.1 });
-    }
+    jump() { this.playTone({ type: 'triangle', freq: 420, glideTo: 660, dur: 0.08, attack: 0.001, decay: 0.12, gain: 0.15 }); }
+    land() { this.playTone({ type: 'sine', freq: 110, dur: 0.05, attack: 0.001, decay: 0.18, gain: 0.3 }); }
+    ko() { this.playTone({ type: 'square', freq: 440, glideTo: 110, dur: 0.5, attack: 0.005, decay: 0.3, gain: 0.22 }); }
+    boom() { this.playNoise({ type: 'lowpass', freq: 220, q: 0.9, dur: 0.25, attack: 0.001, decay: 0.5, gain: 0.5 }); }
+    tick() { this.playTone({ type: 'square', freq: 880, dur: 0.05, attack: 0.001, decay: 0.05, gain: 0.1 }); }
   }
   const SFX = new Sound();
 
@@ -197,7 +190,7 @@
   }
 
   class Attack {
-    constructor({ name, startup, active, recovery, damage, kbX, kbY, hitstun, width, height, offsetX, offsetY }) {
+    constructor({ name, startup, active, recovery, damage, kbX, kbY, hitstun, width, height, offsetX, offsetY, guard='mid', moveCtrl=1, impulseX=0, impulseY=0 }) {
       this.name = name;
       this.startup = startup;
       this.active = active;
@@ -210,27 +203,33 @@
       this.height = height;
       this.offsetX = offsetX;
       this.offsetY = offsetY;
+      this.guard = guard;       // 'high' | 'mid' | 'low'
+      this.moveCtrl = moveCtrl; // movement control multiplier while attacking
+      this.impulseX = impulseX; // applied at first active frame (in px/s)
+      this.impulseY = impulseY; // applied at first active frame (in px/s)
     }
     total() { return this.startup + this.active + this.recovery; }
+    isHeavy() { return this.damage >= 10; }
+    isLow() { return this.guard === 'low'; }
   }
 
-  // Expanded uniqueness: crouch-specific variants
+  // Unique directional normals: guard levels + movement
   const ATTACKS = {
     light: {
-      neutral: new Attack({ name: 'Jab Hook', startup: 0.05, active: 0.06, recovery: 0.20, damage: 5, kbX: 300, kbY: -80, hitstun: 0.18, width: 50, height: 18, offsetX: 34, offsetY: -68 }),
-      forward: new Attack({ name: 'Straight', startup: 0.06, active: 0.06, recovery: 0.22, damage: 6, kbX: 360, kbY: -100, hitstun: 0.20, width: 58, height: 18, offsetX: 44, offsetY: -66 }),
-      back: new Attack({ name: 'Backfist', startup: 0.08, active: 0.06, recovery: 0.24, damage: 6, kbX: 320, kbY: -90, hitstun: 0.20, width: 54, height: 18, offsetX: -12, offsetY: -72 }),
-      up: new Attack({ name: 'Uppercut L', startup: 0.10, active: 0.08, recovery: 0.28, damage: 7, kbX: 140, kbY: -560, hitstun: 0.28, width: 26, height: 64, offsetX: 26, offsetY: -100 }),
-      down: new Attack({ name: 'Hammer L', startup: 0.08, active: 0.06, recovery: 0.26, damage: 6, kbX: 220, kbY: 80, hitstun: 0.22, width: 38, height: 40, offsetX: 24, offsetY: -40 }),
-      crouch: new Attack({ name: 'Low Jab', startup: 0.05, active: 0.06, recovery: 0.18, damage: 4, kbX: 240, kbY: 40, hitstun: 0.16, width: 44, height: 16, offsetX: 30, offsetY: -34 }),
+      neutral: new Attack({ name: 'Jab Hook',  startup: 0.05, active: 0.06, recovery: 0.20, damage: 5,  kbX: 300, kbY: -80,  hitstun: 0.18, width: 50, height: 18, offsetX: 34, offsetY: -68, guard: 'mid', moveCtrl: 1.0 }),
+      forward: new Attack({ name: 'Step Straight', startup: 0.06, active: 0.06, recovery: 0.22, damage: 6,  kbX: 360, kbY: -100, hitstun: 0.20, width: 58, height: 18, offsetX: 44, offsetY: -66, guard: 'mid', moveCtrl: 1.0, impulseX: 120 }),
+      back:    new Attack({ name: 'Backfist',     startup: 0.08, active: 0.06, recovery: 0.24, damage: 6,  kbX: 320, kbY: -90,  hitstun: 0.20, width: 54, height: 18, offsetX: -12, offsetY: -72, guard: 'mid', moveCtrl: 1.0, impulseX: -120 }),
+      up:      new Attack({ name: 'Uppercut L',   startup: 0.10, active: 0.08, recovery: 0.28, damage: 7,  kbX: 140, kbY: -560, hitstun: 0.28, width: 26, height: 64, offsetX: 26, offsetY: -100, guard: 'high', moveCtrl: 0.95, impulseY: -180 }),
+      down:    new Attack({ name: 'Hammer L',     startup: 0.08, active: 0.06, recovery: 0.26, damage: 6,  kbX: 220, kbY: 80,   hitstun: 0.22, width: 38, height: 40, offsetX: 24, offsetY: -40,  guard: 'low', moveCtrl: 1.0 }),
+      crouch:  new Attack({ name: 'Low Jab',      startup: 0.05, active: 0.06, recovery: 0.18, damage: 4,  kbX: 240, kbY: 40,   hitstun: 0.16, width: 44, height: 16, offsetX: 30, offsetY: -34,  guard: 'low', moveCtrl: 1.0 }),
     },
     heavy: {
-      neutral: new Attack({ name: 'Heavy Hook', startup: 0.12, active: 0.10, recovery: 0.42, damage: 11, kbX: 520, kbY: -240, hitstun: 0.32, width: 68, height: 26, offsetX: 48, offsetY: -64 }),
-      forward: new Attack({ name: 'Heavy Straight', startup: 0.13, active: 0.10, recovery: 0.46, damage: 12, kbX: 580, kbY: -260, hitstun: 0.34, width: 74, height: 24, offsetX: 56, offsetY: -64 }),
-      back: new Attack({ name: 'Spinning Backfist', startup: 0.14, active: 0.10, recovery: 0.48, damage: 12, kbX: 520, kbY: -240, hitstun: 0.34, width: 66, height: 26, offsetX: -14, offsetY: -70 }),
-      up: new Attack({ name: 'Uppercut H', startup: 0.12, active: 0.10, recovery: 0.44, damage: 10, kbX: 160, kbY: -660, hitstun: 0.36, width: 32, height: 72, offsetX: 30, offsetY: -106 }),
-      down: new Attack({ name: 'Hammer H', startup: 0.11, active: 0.08, recovery: 0.42, damage: 10, kbX: 280, kbY: 140, hitstun: 0.30, width: 42, height: 48, offsetX: 28, offsetY: -46 }),
-      crouch: new Attack({ name: 'Sweep', startup: 0.12, active: 0.12, recovery: 0.44, damage: 9, kbX: 360, kbY: 120, hitstun: 0.34, width: 80, height: 22, offsetX: 36, offsetY: -24 }),
+      neutral: new Attack({ name: 'Heavy Hook',       startup: 0.12, active: 0.10, recovery: 0.42, damage: 11, kbX: 520, kbY: -240, hitstun: 0.32, width: 68, height: 26, offsetX: 48, offsetY: -64, guard: 'mid', moveCtrl: 0.9 }),
+      forward: new Attack({ name: 'Lunge Straight',   startup: 0.13, active: 0.10, recovery: 0.46, damage: 12, kbX: 580, kbY: -260, hitstun: 0.34, width: 74, height: 24, offsetX: 56, offsetY: -64, guard: 'mid', moveCtrl: 0.95, impulseX: 240 }),
+      back:    new Attack({ name: 'Spin Backfist',    startup: 0.14, active: 0.10, recovery: 0.48, damage: 12, kbX: 520, kbY: -240, hitstun: 0.34, width: 66, height: 26, offsetX: -14, offsetY: -70, guard: 'mid', moveCtrl: 0.95, impulseX: -220 }),
+      up:      new Attack({ name: 'Uppercut H',       startup: 0.12, active: 0.10, recovery: 0.44, damage: 10, kbX: 160, kbY: -660, hitstun: 0.36, width: 32, height: 72, offsetX: 30, offsetY: -106, guard: 'high', moveCtrl: 0.9, impulseY: -260 }),
+      down:    new Attack({ name: 'Heavy Hammer',     startup: 0.11, active: 0.08, recovery: 0.42, damage: 10, kbX: 280, kbY: 140,  hitstun: 0.30, width: 42, height: 48, offsetX: 28, offsetY: -46,  guard: 'low', moveCtrl: 0.95 }),
+      crouch:  new Attack({ name: 'Sweep',            startup: 0.12, active: 0.12, recovery: 0.44, damage: 9,  kbX: 360, kbY: 120,  hitstun: 0.34, width: 80, height: 22, offsetX: 36, offsetY: -24,  guard: 'low', moveCtrl: 0.95, impulseX: 80 }),
     }
   };
 
@@ -246,7 +245,7 @@
       this.w = CONFIG.HURTBOX_W;
       this.onGround = true;
 
-      this.state = 'idle'; // idle, walk, jump, crouch, attack, hitstun, ko
+      this.state = 'idle'; // idle, walk, jump, crouch, attack, hitstun, block, ko
       this.health = 100;
       this.chipHealth = 100;
 
@@ -258,6 +257,7 @@
       this.attackKind = 'light';
 
       this.hitstunT = 0;
+      this.blockStunT = 0;
 
       this.jumpBuffered = 0;
       this.attackBuffered = null;
@@ -271,10 +271,16 @@
       this.touchWall = 0;
       this.wallStickT = 0;
       this.wallJumpLock = 0;
+
+      // Block flags (from input each frame)
+      this.holdingBack = false;
+      this.blockingHigh = false;
+      this.blockingLow = false;
     }
 
     currentHeight() {
-      return this.state === 'crouch' ? CONFIG.HURTBOX_CROUCH_H : CONFIG.HURTBOX_STAND_H;
+      const crouchPose = (this.state === 'crouch') || (this.state === 'attack' && this.attackDir === 'crouch');
+      return crouchPose ? CONFIG.HURTBOX_CROUCH_H : CONFIG.HURTBOX_STAND_H;
     }
 
     hurtbox() {
@@ -306,12 +312,12 @@
     }
 
     canControl() {
-      return this.state !== 'attack' && this.state !== 'hitstun' && this.state !== 'ko';
+      return this.state !== 'attack' && this.state !== 'hitstun' && this.state !== 'ko' && this.state !== 'block';
     }
 
     startDirectionalAttack(kind, dir) {
       if (this.state === 'ko') return;
-      if (this.state === 'attack' || this.state === 'hitstun') { this.attackBuffered = { kind, dir }; return; }
+      if (this.state === 'attack' || this.state === 'hitstun' || this.state === 'block') { this.attackBuffered = { kind, dir }; return; }
       this.attackKind = kind;
       this.attackDir = dir;
       this.attack = ATTACKS[kind][dir];
@@ -321,13 +327,39 @@
       this._activeJustStarted = false;
     }
 
+    updateBlockFlags(input) {
+      const left = input.isDown(this.controls.left);
+      const right = input.isDown(this.controls.right);
+      const down = input.isDown(this.controls.downAim);
+      const backHeld = (this.facing === 1 && left) || (this.facing === -1 && right);
+      this.holdingBack = !!backHeld;
+      this.blockingLow = backHeld && down;
+      this.blockingHigh = backHeld && !down;
+    }
+
+    isBlockingForGuard(guard) {
+      if (!this.holdingBack) return false;
+      if (guard === 'low') return this.blockingLow;     // need down-back for lows
+      if (guard === 'high') return this.blockingHigh;   // stand block for overheads
+      return this.blockingHigh || this.blockingLow;     // mid can be either
+    }
+
+    takeBlocked(attacker, a) {
+      // Chip damage and blockstun
+      const chip = Math.max(1, Math.round(a.damage * CONFIG.CHIP_MULT));
+      this.health = Math.max(0, this.health - chip);
+      this.blockStunT = a.isHeavy() ? CONFIG.BLOCKSTUN_HEAVY : CONFIG.BLOCKSTUN_LIGHT;
+      this.state = 'block';
+      this.flashT = 0; // no hit flash on block
+    }
+
     takeHit(from, a, { armored = false } = {}) {
       if (this.state === 'ko') return;
       this.health = Math.max(0, this.health - a.damage);
       this.flashT = 0.12;
 
       if (armored && this.state === 'attack') {
-        // Super armor: no hitstun or knockback; keep current velocity/state
+        // Super armor: no hitstun/knockback; keep moving
         return;
       }
 
@@ -346,8 +378,8 @@
     }
 
     aimDirFromInput(input) {
-      // If crouching and not aiming up, use crouch variant
-      if (this.state === 'crouch' && !input.isDown(this.controls.upAim)) return 'crouch';
+      const crouchIntent = this.onGround && input.isDown(this.controls.downAim);
+      if (crouchIntent && !input.isDown(this.controls.upAim)) return 'crouch';
       if (input.isDown(this.controls.upAim)) return 'up';
       if (input.isDown(this.controls.downAim)) return 'down';
       const left = input.isDown(this.controls.left);
@@ -360,20 +392,26 @@
     handleInput(input, dt) {
       if (this.state === 'ko') return;
 
-      // Determine crouch intent (grounded and holding down)
-      const wantCrouch = this.onGround && input.isDown(this.controls.downAim) && this.state !== 'attack' && this.state !== 'hitstun';
+      // Update block flags early (used by draw + block checks)
+      this.updateBlockFlags(input);
 
-      // Movement
-      if (this.canControl() || this.state === 'crouch') {
+      // Movement: allow movement while attacking (no slow). Use attack-specific moveCtrl.
+      const allowMove = this.canControl() || this.state === 'crouch' || this.state === 'attack';
+      if (allowMove) {
         let move = 0;
         if (input.isDown(this.controls.left)) move -= 1;
         if (input.isDown(this.controls.right)) move += 1;
 
-        const isCrouch = wantCrouch || this.state === 'crouch';
-        const maxSpd = isCrouch ? CONFIG.MAX_CROUCH_SPEED : CONFIG.MAX_RUN_SPEED;
+        const isCrouchIntent = this.onGround && input.isDown(this.controls.downAim) && this.state !== 'hitstun' && this.state !== 'block';
+        const isCrouchPose = (this.state === 'crouch') || (this.state === 'attack' && this.attackDir === 'crouch') || (isCrouchIntent && this.state !== 'attack');
+
+        const maxSpd = isCrouchPose ? CONFIG.MAX_CROUCH_SPEED
+          : (this.state === 'attack' && this.attack ? CONFIG.MAX_RUN_SPEED * (this.attack.moveCtrl ?? 1) : CONFIG.MAX_RUN_SPEED);
+
         const target = move * maxSpd;
         const accel = CONFIG.ACCEL * dt;
 
+        // Ground accel; in air we blend toward target slightly
         if (this.onGround) {
           if (this.vel.x < target) this.vel.x = Math.min(target, this.vel.x + accel);
           else if (this.vel.x > target) this.vel.x = Math.max(target, this.vel.x - accel);
@@ -381,21 +419,22 @@
           this.vel.x = lerp(this.vel.x, target, 0.06);
         }
 
-        if (isCrouch) this.state = 'crouch';
-        else if (move !== 0 && this.onGround) this.state = 'walk';
-        else if (this.onGround && this.state !== 'attack') this.state = 'idle';
+        // Set locomotion state, but don't override attack/hitstun/block
+        if (this.state !== 'attack' && this.state !== 'hitstun' && this.state !== 'block') {
+          if (isCrouchPose) this.state = 'crouch';
+          else if (move !== 0 && this.onGround) this.state = 'walk';
+          else if (this.onGround) this.state = 'idle';
+        }
       }
 
       // Jump buffer
-      if (input.justPressed(this.controls.jump)) {
-        this.jumpBuffered = 0.14;
-      }
+      if (input.justPressed(this.controls.jump)) this.jumpBuffered = 0.14;
       if (this.jumpBuffered > 0) this.jumpBuffered -= dt;
 
       if (this.wallStickT > 0) this.wallStickT -= dt;
       if (this.wallJumpLock > 0) this.wallJumpLock -= dt;
 
-      // Jumps: ground or wall
+      // Jumps: ground or wall (even during attack)
       if ((this.canControl() || this.state === 'attack' || this.state === 'crouch') && this.jumpBuffered > 0) {
         if (this.onGround) {
           this.vel.y = -CONFIG.JUMP_SPEED;
@@ -429,29 +468,34 @@
     step(dt) {
       this.landedThisFrame = false;
 
-      // Attack progression
+      // Attack progression + movement impulse when active starts
       if (this.state === 'attack' && this.attack) {
         const prevT = this.attackT;
         this.attackT += dt;
         if (prevT < this.attack.startup && this.attackT >= this.attack.startup) {
           this._activeJustStarted = true;
+          // Unique movement impulse on first active frame
+          this.vel.x += this.facing * (this.attack.impulseX || 0);
+          this.vel.y += (this.attack.impulseY || 0);
         }
         if (this.attackT >= this.attack.total()) {
           this.attack = null;
           this.attackT = 0;
-          // If holding down on ground, return to crouch, else idle/jump
-          if (this.onGround) {
-            this.state = (this.state === 'attack' && this.onGround) ? 'idle' : this.state;
-            // state will get set to crouch by handleInput next frame if still holding down
-            this.state = 'idle';
-          } else {
-            this.state = 'jump';
-          }
+          if (this.onGround) this.state = 'idle';
+          else this.state = 'jump';
           if (this.attackBuffered) {
             const buffered = this.attackBuffered;
             this.attackBuffered = null;
             this.startDirectionalAttack(buffered.kind, buffered.dir);
           }
+        }
+      }
+
+      // Block stun
+      if (this.state === 'block') {
+        this.blockStunT -= dt;
+        if (this.blockStunT <= 0) {
+          this.state = this.onGround ? 'idle' : 'jump';
         }
       }
 
@@ -483,7 +527,9 @@
       }
 
       // Friction/drag
-      if (this.onGround && (this.canControl() || this.state === 'crouch')) {
+      // We still apply friction on ground when controllable OR attacking (so you don't slide forever),
+      // but since movement input is allowed during attack, you won't feel "slowed".
+      if (this.onGround && (this.canControl() || this.state === 'crouch' || this.state === 'attack')) {
         const s = Math.sign(this.vel.x);
         const mag = Math.abs(this.vel.x);
         const decel = CONFIG.GROUND_FRICTION * dt;
@@ -542,10 +588,10 @@
 
       const bodyW = this.w;
       const baseH = hCur;
-      const isCrouch = this.state === 'crouch';
-      const bodyH = isCrouch ? baseH * 0.92 : baseH; // compact crouch
-      const idleBob = Math.sin(time * 6) * (this.onGround ? 1.5 : 0) * (isCrouch ? 0.4 : 1);
-      const runSwing = Math.sin(time * 12) * 10 * ((this.state === 'walk' && !isCrouch) ? 1 : 0);
+      const isCrouchPose = (this.state === 'crouch') || (this.state === 'attack' && this.attackDir === 'crouch');
+      const bodyH = isCrouchPose ? baseH * 0.92 : baseH;
+      const idleBob = Math.sin(time * 6) * (this.onGround ? 1.5 : 0) * (isCrouchPose ? 0.4 : 1);
+      const runSwing = Math.sin(time * 12) * 10 * ((this.state === 'walk' && !isCrouchPose) ? 1 : 0);
       const jumpTilt = this.onGround ? 0 : clamp(this.vel.y * 0.03, -8, 10);
 
       // Hit flash tint
@@ -574,11 +620,7 @@
       ctx.fillStyle = bodyColor;
       roundRectPath(ctx, gx, gy, gw, gh, 10);
       ctx.fill();
-      ctx.save();
-      ctx.clip();
-      ctx.fillStyle = grad;
-      ctx.fillRect(gx, gy, gw, gh);
-      ctx.restore();
+      ctx.save(); ctx.clip(); ctx.fillStyle = grad; ctx.fillRect(gx, gy, gw, gh); ctx.restore();
       ctx.strokeStyle = 'rgba(0,0,0,0.35)';
       ctx.lineWidth = 2;
       roundRectPath(ctx, gx, gy, gw, gh, 10);
@@ -590,43 +632,28 @@
 
       // Arms + poses
       const armW = 12;
-      const armH = bodyH * 0.58 * (isCrouch ? 0.9 : 1);
-      const armUp = -bodyH * (isCrouch ? 0.56 : 0.64);
+      const armH = bodyH * 0.58 * (isCrouchPose ? 0.9 : 1);
+      const armUp = -bodyH * (isCrouchPose ? 0.56 : 0.64);
       const tRatio = this.attack ? clamp(this.attackT / this.attack.total(), 0, 1) : 0;
       const windup = this.attack ? clamp((this.attack.startup ? (this.attack.startup - Math.min(this.attackT, this.attack.startup)) / this.attack.startup : 0), 0, 1) : 0;
 
-      const dir = this.attack ? this.attackDir : (isCrouch ? 'crouch' : 'neutral');
-      let frontAngle = Math.sin(time * 12) * 10 * ((this.state === 'walk' && !isCrouch) ? 1 : 0) * 0.05;
+      const dir = this.attack ? this.attackDir : (this.holdingBack ? (this.blockingLow ? 'blockLow' : 'blockHigh') : (isCrouchPose ? 'crouch' : 'neutral'));
+      let frontAngle = Math.sin(time * 12) * 10 * ((this.state === 'walk' && !isCrouchPose) ? 1 : 0) * 0.05;
       let backAngle = -frontAngle;
 
       if (this.state === 'attack') {
         switch (dir) {
-          case 'neutral':
-            frontAngle += -Math.PI * 0.6 * (0.3 + tRatio);
-            backAngle += Math.PI * 0.15 * (0.2 + windup);
-            break;
-          case 'forward':
-            frontAngle += -Math.PI * 0.15 - Math.PI * 1.0 * tRatio;
-            backAngle += Math.PI * 0.05 * (0.2 + windup);
-            break;
-          case 'back':
-            frontAngle += Math.PI * 0.1 * (0.2 + windup);
-            backAngle += -Math.PI * 0.9 * (0.3 + tRatio);
-            break;
-          case 'up':
-            frontAngle += -Math.PI * (0.4 + 0.8 * tRatio);
-            backAngle += Math.PI * 0.2 * (0.2 + windup);
-            break;
-          case 'down':
-            frontAngle += Math.PI * (0.35 + 0.7 * tRatio);
-            backAngle += -Math.PI * 0.1 * (0.2 + windup);
-            break;
-          case 'crouch':
-            // Low jab / sweep posture
-            frontAngle += Math.PI * (0.15 + 0.55 * tRatio);
-            backAngle += -Math.PI * 0.05 * (0.2 + windup);
-            break;
+          case 'neutral': frontAngle += -Math.PI * 0.6 * (0.3 + tRatio); backAngle += Math.PI * 0.15 * (0.2 + windup); break;
+          case 'forward': frontAngle += -Math.PI * 0.15 - Math.PI * 1.0 * tRatio; backAngle += Math.PI * 0.05 * (0.2 + windup); break;
+          case 'back':    frontAngle += Math.PI * 0.1 * (0.2 + windup); backAngle += -Math.PI * 0.9 * (0.3 + tRatio); break;
+          case 'up':      frontAngle += -Math.PI * (0.4 + 0.8 * tRatio); backAngle += Math.PI * 0.2 * (0.2 + windup); break;
+          case 'down':    frontAngle += Math.PI * (0.35 + 0.7 * tRatio); backAngle += -Math.PI * 0.1 * (0.2 + windup); break;
+          case 'crouch':  frontAngle += Math.PI * (0.15 + 0.55 * tRatio); backAngle += -Math.PI * 0.05 * (0.2 + windup); break;
         }
+      } else if (dir === 'blockHigh' || dir === 'blockLow') {
+        // Defensive pose
+        frontAngle += -Math.PI * 0.4;
+        backAngle += Math.PI * 0.2;
       }
 
       // Back arm
@@ -662,7 +689,7 @@
           ctx.beginPath();
           const r = 44 + i * 6;
           const ox = this.facing * (this.w * 0.62);
-          const oy = -hCur * 0.6 * (isCrouch ? 0.8 : 1);
+          const oy = -hCur * 0.6 * (isCrouchPose ? 0.8 : 1);
           const cx = this.pos.x + camShake.x + ox;
           const cy = this.pos.y + camShake.y + oy;
           const ccw = this.facing < 0;
@@ -678,7 +705,6 @@
 
       ctx.restore();
 
-      // Debug boxes
       if (debug) {
         const hb = this.hurtbox();
         ctx.fillStyle = COLORS.hurtbox;
@@ -723,11 +749,7 @@
     }
   }
   class Shockwave {
-    constructor(x, y) {
-      this.x = x; this.y = y;
-      this.life = 0.45;
-      this.maxLife = 0.45;
-    }
+    constructor(x, y) { this.x = x; this.y = y; this.life = 0.45; this.maxLife = 0.45; }
     step(dt) { this.life -= dt; }
     draw(ctx) {
       const t = 1 - clamp(this.life / this.maxLife, 0, 1);
@@ -739,7 +761,6 @@
       ctx.stroke();
     }
   }
-
   class DamageText {
     constructor(x, y, text, color) {
       this.x = x; this.y = y;
@@ -751,12 +772,7 @@
       this.color = color;
       this.size = 16;
     }
-    step(dt) {
-      this.life -= dt;
-      this.x += this.vx * dt;
-      this.y += this.vy * dt;
-      this.vy += 360 * dt;
-    }
+    step(dt) { this.life -= dt; this.x += this.vx * dt; this.y += this.vy * dt; this.vy += 360 * dt; }
     draw(ctx) {
       const t = clamp(this.life / this.maxLife, 0, 1);
       ctx.globalAlpha = t;
@@ -812,11 +828,11 @@
     shocks.push(new Shockwave(x, y));
   }
 
-  // AI (unchanged logic, now naturally can use crouch attacks via downAim/crouch state)
+  // AI: add basic blocking reactions
   const DIFFS = [
-    { name: 'Easy', reaction: 0.26, desired: 120, jumpProb: 0.04, attackCD: 0.65, bravery: 0.5, heavyBias: 0.35 },
-    { name: 'Normal', reaction: 0.18, desired: 100, jumpProb: 0.07, attackCD: 0.45, bravery: 0.7, heavyBias: 0.5 },
-    { name: 'Hard', reaction: 0.12, desired: 90, jumpProb: 0.10, attackCD: 0.34, bravery: 0.9, heavyBias: 0.65 },
+    { name: 'Easy', reaction: 0.26, desired: 120, jumpProb: 0.04, attackCD: 0.65, bravery: 0.5, heavyBias: 0.35, blockProb: 0.4 },
+    { name: 'Normal', reaction: 0.18, desired: 100, jumpProb: 0.07, attackCD: 0.45, bravery: 0.7, heavyBias: 0.5, blockProb: 0.65 },
+    { name: 'Hard', reaction: 0.12, desired: 90, jumpProb: 0.10, attackCD: 0.34, bravery: 0.9, heavyBias: 0.65, blockProb: 0.85 },
   ];
   class AIController {
     constructor(fighter, opponent, pad) {
@@ -844,7 +860,6 @@
 
       const f = this.f, o = this.opp;
       const distX = Math.abs(f.pos.x - o.pos.x);
-      const onGround = f.onGround;
       const close = distX < 70;
       const mid = distX < 130;
 
@@ -852,9 +867,7 @@
       this.pad.setDown(f.controls.left, false);
       this.pad.setDown(f.controls.right, false);
       this.pad.setDown(f.controls.upAim, false);
-      // Sometimes crouch for lows at close range
-      const doCrouch = onGround && close && Math.random() < 0.25;
-      this.pad.setDown(f.controls.downAim, doCrouch);
+      this.pad.setDown(f.controls.downAim, false);
 
       // Spacing
       if (distX > this.diff.desired + 20) {
@@ -870,22 +883,32 @@
         else this.pad.setDown(f.controls.right, true);
       }
 
+      // Basic blocking: if opponent is attacking and within range, hold back (and sometimes down)
+      if (o.state === 'attack' && o.attack && (close || mid) && Math.random() < this.diff.blockProb) {
+        // hold back
+        const holdBackLeft = (f.facing === 1);
+        this.pad.setDown(holdBackLeft ? f.controls.left : f.controls.right, true);
+        // if opponent seems to be swinging low, crouch block sometimes
+        const lowThreat = (o.attack.guard === 'low') || (o.attackDir === 'down' || o.attackDir === 'crouch');
+        if (lowThreat && Math.random() < 0.7) this.pad.setDown(f.controls.downAim, true);
+      }
+
       // Anti-air
       const oppRising = !o.onGround && o.vel.y < -50 && mid;
-      if (onGround && oppRising && this.coolAttack <= 0) {
+      if (f.onGround && oppRising && this.coolAttack <= 0) {
         this.pad.setDown(f.controls.upAim, true);
         this.pad.press(f.controls.heavy);
         this.coolAttack = this.diff.attackCD;
         return;
       }
 
-      // Attack choice
+      // Offense
       const doHeavy = Math.random() < this.diff.heavyBias;
       if (this.coolAttack <= 0) {
-        if (onGround && (close || mid)) {
+        if (f.onGround && (close || mid)) {
           this.pad.press(doHeavy ? f.controls.heavy : f.controls.light);
           this.coolAttack = this.diff.attackCD * randRange(0.8, 1.2);
-        } else if (!onGround && Math.random() < 0.5) {
+        } else if (!f.onGround && Math.random() < 0.5) {
           this.pad.press(doHeavy ? f.controls.heavy : f.controls.light);
           this.coolAttack = this.diff.attackCD;
         }
@@ -994,12 +1017,16 @@
         p.attack = null;
         p.attackT = 0;
         p.hitstunT = 0;
+        p.blockStunT = 0;
         p.hasHitThisAttack = false;
         p.flashT = 0;
         p.attackDir = 'neutral';
         p.attackKind = 'light';
         p.wallStickT = 0;
         p.wallJumpLock = 0;
+        p.holdingBack = false;
+        p.blockingHigh = false;
+        p.blockingLow = false;
       }
       this.timeLeft = CONFIG.ROUND_TIME;
       this.roundOver = false;
@@ -1119,11 +1146,6 @@
         pt.step(dt);
         if (pt.life <= 0) this.particles.splice(i, 1);
       }
-      for (let i = this.texts.length - 1; i >= 0; i--) {
-        const t = this.texts[i];
-        t.step(dt);
-        if (t.life <= 0) this.texts.splice(i, 1);
-      }
       for (let i = this.shockwaves.length - 1; i >= 0; i--) {
         const sw = this.shockwaves[i];
         sw.step(dt);
@@ -1165,19 +1187,38 @@
         if (!hb) return;
         const defHurt = defender.hurtbox();
         if (rectsIntersect(hb, defHurt)) {
-          const armored = defender.state === 'attack'; // super armor: no stagger while attacking
-          defender.takeHit(attacker, attacker.attack, { armored });
+          // Blocking check: hold back + correct guard
+          const blocked = defender.isBlockingForGuard(attacker.attack.guard);
+
+          if (blocked) {
+            defender.takeBlocked(attacker, attacker.attack);
+          } else {
+            const armored = defender.state === 'attack'; // super armor while attacking (no hitstun/knockback)
+            defender.takeHit(attacker, attacker.attack, { armored });
+          }
+
           attacker.hasHitThisAttack = true;
 
-          const heavy = attacker.attack.damage >= 10;
+          const heavy = attacker.attack.isHeavy();
           this.hitstopT = heavy ? CONFIG.HITSTOP_HEAVY : CONFIG.HITSTOP_LIGHT;
           this.camShakeT = heavy ? 0.22 : 0.14;
           this.camShakeMag = heavy ? CONFIG.CAM_SHAKE_HEAVY : CONFIG.CAM_SHAKE_LIGHT;
           const cx = hb.x + hb.w / 2;
           const cy = hb.y + hb.h / 2;
           spawnHitSparks(this.particles, cx, cy, 'rgba(255,255,255,0.9)');
-          // Damage number over defender
-          this.texts.push(new DamageText(defender.pos.x, defender.pos.y - defender.currentHeight() - 10, `-${attacker.attack.damage}`, 'rgba(255,255,255,0.95)'));
+
+          // Damage/Chip number over defender
+          const dmgShown = blocked ? Math.max(1, Math.round(attacker.attack.damage * CONFIG.CHIP_MULT)) : attacker.attack.damage;
+          this.particles.push(); // no-op avoid lint
+          this.texts?.push?.({ // fallback if texts missing
+            x: defender.pos.x, y: defender.pos.y - defender.currentHeight() - 10,
+            vx: randRange(-40, 40), vy: -120, life: 0.7, maxLife: 0.7,
+            text: `-${dmgShown}`, color: blocked ? 'rgba(180,220,255,0.95)' : 'rgba(255,255,255,0.95)',
+            size: 16,
+            step(dt){ this.life-=dt; this.x+=this.vx*dt; this.y+=this.vy*dt; this.vy+=360*dt; },
+            draw(ctx){ const t=clamp(this.life/this.maxLife,0,1); ctx.globalAlpha=t; ctx.font=`900 ${this.size}px ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial`; ctx.fillStyle=this.color; ctx.strokeStyle='rgba(0,0,0,0.5)'; ctx.lineWidth=3; ctx.strokeText(this.text,this.x,this.y); ctx.fillText(this.text,this.x,this.y); ctx.globalAlpha=1; }
+          });
+
           SFX.hit(!heavy);
         }
       };
@@ -1189,14 +1230,14 @@
       const setBars = (el, chipEl, value, chip) => {
         const v = clamp(value, 0, 100);
         const c = clamp(chip, 0, 100);
-        el.style.width = `${v}%`;
-        chipEl.style.width = `${c}%`;
+        if (el) el.style.width = `${v}%`;
+        if (chipEl) chipEl.style.width = `${c}%`;
       };
       setBars(UI.p1Health, UI.p1Chip, this.p1.health, this.p1.chipHealth);
       setBars(UI.p2Health, UI.p2Chip, this.p2.health, this.p2.chipHealth);
 
       const t = Math.max(0, Math.ceil(this.timeLeft));
-      if (UI.timer.textContent !== String(t) || force) UI.timer.textContent = String(t);
+      if (UI.timer && (UI.timer.textContent !== String(t) || force)) UI.timer.textContent = String(t);
     }
 
     drawFighterUI(f, isAI = false) {
@@ -1301,9 +1342,6 @@
       // Floating UI
       this.drawFighterUI(this.p1, false);
       this.drawFighterUI(this.p2, true);
-
-      // Damage numbers
-      for (const txt of this.texts) txt.draw(ctx);
 
       // Screen flash
       if (this.flashAlpha > 0) {
