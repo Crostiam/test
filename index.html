@@ -31,31 +31,27 @@
         <div class="messages" id="messages"></div>
         <div class="controls">
           <div>
-            You (P1): Move A/D • Aim Up W • Aim Down S • Jump Space
+            You (P1): Move A/D • Aim Up W • Crouch/Aim Down S • Jump Space
           </div>
           <div>
-            Attacks: J = Directional Light • K = Directional Heavy (Up/Down/Forward/Back/Neutral)
+            Attacks: J = Directional Light • K = Directional Heavy (Up/Down/Forward/Back/Neutral/Crouch)
           </div>
           <div>
-            Wall Jump: Hold into wall + Space • Reset: R • Pause: P • Toggle Debug: `
+            Armor: You won’t stagger while attacking (super armor) • Wall Jump: Hold into wall + Space
           </div>
           <div>
-            Sound: Mute M • AI Difficulty: <span id="ai-diff">Normal</span> (H to cycle) • Floating UI shows health above fighters
-          </div>
-          <div>
-            Tip: Click Play or press any key to enable audio.
+            Reset: R • Pause: P • Toggle Debug: ` • Sound: M • AI Difficulty: <span id="ai-diff">Normal</span> (H)
           </div>
         </div>
       </div>
 
-      <!-- Start Menu Overlay -->
       <div id="menu" class="menu-overlay">
         <div class="menu-panel">
           <div class="menu-title">Fighthing Street</div>
           <div class="menu-sub">VS AI • Canvas + WebAudio</div>
           <button id="btn-play" class="btn-primary">Play</button>
           <div class="menu-hint">
-            Directional attacks: hold W/S/A/D or neutral, then press J (light) or K (heavy). Jump with Space. Wall jump by holding into a wall and pressing Space.
+            Hold S to crouch (low profile + unique crouch attacks). Attacks are directional (W/S/A/D or neutral) with super armor during active moves.
           </div>
         </div>
       </div>
