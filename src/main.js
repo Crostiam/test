@@ -1,5 +1,7 @@
-/* Fighthing Street — Directional attacks, Space to jump, wall jump, better FX, loser explodes
-   Floating UI: Health/nameplates over fighters + damage popups.
+/* Fighthing Street — Crouch state, more unique attacks, super armor (no stagger while attacking)
+   - Hold S to crouch (reduced hurtbox + unique crouch attacks)
+   - While attacking, you will not be staggered (no hitstun/knockback), but you still take damage
+   - Directional attacks remain (Up/Down/Forward/Back/Neutral) + Crouch variants
 */
 
 (() => {
@@ -26,13 +28,16 @@
     GROUND_FRICTION: 1800,
     AIR_DRAG: 0.985,
     MAX_RUN_SPEED: 380,
+    MAX_CROUCH_SPEED: 140,
     ACCEL: 2800,
     JUMP_SPEED: 940,
     WALL_SLIDE_MAX: 360,
     WALL_JUMP_X: 560,
     WALL_JUMP_Y: 860,
     WALL_STICK: 0.12,
-    HURTBOX: { w: 58, h: 116 },
+    HURTBOX_W: 58,
+    HURTBOX_STAND_H: 116,
+    HURTBOX_CROUCH_H: 78,
     ROUND_TIME: 99,
     PUSHBOX: 0.5,
     HITSTOP_LIGHT: 0.06,
@@ -52,9 +57,7 @@
 
   function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
   function lerp(a, b, t) { return a + (b - a) * t; }
-  function rectsIntersect(a, b) {
-    return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
-  }
+  function rectsIntersect(a, b) { return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y; }
   function randRange(a, b) { return a + Math.random() * (b - a); }
 
   function roundRectPath(ctx, x, y, w, h, r) {
@@ -211,20 +214,23 @@
     total() { return this.startup + this.active + this.recovery; }
   }
 
+  // Expanded uniqueness: crouch-specific variants
   const ATTACKS = {
     light: {
-      neutral: new Attack({ name: 'Jab Hook', startup: 0.06, active: 0.06, recovery: 0.20, damage: 5, kbX: 300, kbY: -80, hitstun: 0.18, width: 48, height: 18, offsetX: 34, offsetY: -68 }),
-      forward: new Attack({ name: 'Straight', startup: 0.07, active: 0.06, recovery: 0.22, damage: 6, kbX: 360, kbY: -100, hitstun: 0.20, width: 56, height: 18, offsetX: 42, offsetY: -66 }),
-      back: new Attack({ name: 'Backfist', startup: 0.08, active: 0.06, recovery: 0.24, damage: 6, kbX: 320, kbY: -90, hitstun: 0.20, width: 52, height: 18, offsetX: -10, offsetY: -72 }),
-      up: new Attack({ name: 'Uppercut L', startup: 0.10, active: 0.08, recovery: 0.28, damage: 7, kbX: 140, kbY: -540, hitstun: 0.28, width: 26, height: 60, offsetX: 24, offsetY: -98 }),
-      down: new Attack({ name: 'Hammer L', startup: 0.08, active: 0.06, recovery: 0.26, damage: 6, kbX: 220, kbY: 80, hitstun: 0.22, width: 36, height: 40, offsetX: 22, offsetY: -40 }),
+      neutral: new Attack({ name: 'Jab Hook', startup: 0.05, active: 0.06, recovery: 0.20, damage: 5, kbX: 300, kbY: -80, hitstun: 0.18, width: 50, height: 18, offsetX: 34, offsetY: -68 }),
+      forward: new Attack({ name: 'Straight', startup: 0.06, active: 0.06, recovery: 0.22, damage: 6, kbX: 360, kbY: -100, hitstun: 0.20, width: 58, height: 18, offsetX: 44, offsetY: -66 }),
+      back: new Attack({ name: 'Backfist', startup: 0.08, active: 0.06, recovery: 0.24, damage: 6, kbX: 320, kbY: -90, hitstun: 0.20, width: 54, height: 18, offsetX: -12, offsetY: -72 }),
+      up: new Attack({ name: 'Uppercut L', startup: 0.10, active: 0.08, recovery: 0.28, damage: 7, kbX: 140, kbY: -560, hitstun: 0.28, width: 26, height: 64, offsetX: 26, offsetY: -100 }),
+      down: new Attack({ name: 'Hammer L', startup: 0.08, active: 0.06, recovery: 0.26, damage: 6, kbX: 220, kbY: 80, hitstun: 0.22, width: 38, height: 40, offsetX: 24, offsetY: -40 }),
+      crouch: new Attack({ name: 'Low Jab', startup: 0.05, active: 0.06, recovery: 0.18, damage: 4, kbX: 240, kbY: 40, hitstun: 0.16, width: 44, height: 16, offsetX: 30, offsetY: -34 }),
     },
     heavy: {
-      neutral: new Attack({ name: 'Heavy Hook', startup: 0.12, active: 0.10, recovery: 0.42, damage: 11, kbX: 520, kbY: -240, hitstun: 0.32, width: 66, height: 26, offsetX: 46, offsetY: -64 }),
-      forward: new Attack({ name: 'Heavy Straight', startup: 0.13, active: 0.10, recovery: 0.46, damage: 12, kbX: 560, kbY: -260, hitstun: 0.34, width: 70, height: 24, offsetX: 54, offsetY: -64 }),
-      back: new Attack({ name: 'Spinning Backfist', startup: 0.14, active: 0.10, recovery: 0.48, damage: 12, kbX: 520, kbY: -240, hitstun: 0.34, width: 64, height: 26, offsetX: -12, offsetY: -70 }),
-      up: new Attack({ name: 'Uppercut H', startup: 0.12, active: 0.10, recovery: 0.44, damage: 10, kbX: 160, kbY: -640, hitstun: 0.36, width: 30, height: 70, offsetX: 28, offsetY: -104 }),
-      down: new Attack({ name: 'Hammer H', startup: 0.11, active: 0.08, recovery: 0.42, damage: 10, kbX: 260, kbY: 120, hitstun: 0.30, width: 40, height: 46, offsetX: 26, offsetY: -44 }),
+      neutral: new Attack({ name: 'Heavy Hook', startup: 0.12, active: 0.10, recovery: 0.42, damage: 11, kbX: 520, kbY: -240, hitstun: 0.32, width: 68, height: 26, offsetX: 48, offsetY: -64 }),
+      forward: new Attack({ name: 'Heavy Straight', startup: 0.13, active: 0.10, recovery: 0.46, damage: 12, kbX: 580, kbY: -260, hitstun: 0.34, width: 74, height: 24, offsetX: 56, offsetY: -64 }),
+      back: new Attack({ name: 'Spinning Backfist', startup: 0.14, active: 0.10, recovery: 0.48, damage: 12, kbX: 520, kbY: -240, hitstun: 0.34, width: 66, height: 26, offsetX: -14, offsetY: -70 }),
+      up: new Attack({ name: 'Uppercut H', startup: 0.12, active: 0.10, recovery: 0.44, damage: 10, kbX: 160, kbY: -660, hitstun: 0.36, width: 32, height: 72, offsetX: 30, offsetY: -106 }),
+      down: new Attack({ name: 'Hammer H', startup: 0.11, active: 0.08, recovery: 0.42, damage: 10, kbX: 280, kbY: 140, hitstun: 0.30, width: 42, height: 48, offsetX: 28, offsetY: -46 }),
+      crouch: new Attack({ name: 'Sweep', startup: 0.12, active: 0.12, recovery: 0.44, damage: 9, kbX: 360, kbY: 120, hitstun: 0.34, width: 80, height: 22, offsetX: 36, offsetY: -24 }),
     }
   };
 
@@ -237,11 +243,10 @@
       this.pos = { x, y: CONFIG.FLOOR_Y };
       this.vel = { x: 0, y: 0 };
       this.facing = id === 1 ? 1 : -1;
-      this.w = CONFIG.HURTBOX.w;
-      this.h = CONFIG.HURTBOX.h;
+      this.w = CONFIG.HURTBOX_W;
       this.onGround = true;
 
-      this.state = 'idle';
+      this.state = 'idle'; // idle, walk, jump, crouch, attack, hitstun, ko
       this.health = 100;
       this.chipHealth = 100;
 
@@ -268,12 +273,17 @@
       this.wallJumpLock = 0;
     }
 
+    currentHeight() {
+      return this.state === 'crouch' ? CONFIG.HURTBOX_CROUCH_H : CONFIG.HURTBOX_STAND_H;
+    }
+
     hurtbox() {
+      const h = this.currentHeight();
       return {
         x: this.pos.x - this.w / 2,
-        y: this.pos.y - this.h,
+        y: this.pos.y - h,
         w: this.w,
-        h: this.h,
+        h,
       };
     }
 
@@ -311,16 +321,23 @@
       this._activeJustStarted = false;
     }
 
-    takeHit(from, a) {
+    takeHit(from, a, { armored = false } = {}) {
       if (this.state === 'ko') return;
       this.health = Math.max(0, this.health - a.damage);
+      this.flashT = 0.12;
+
+      if (armored && this.state === 'attack') {
+        // Super armor: no hitstun or knockback; keep current velocity/state
+        return;
+      }
+
+      // Normal reaction
       this.hitstunT = a.hitstun;
       this.state = this.health <= 0 ? 'ko' : 'hitstun';
       const dir = from.pos.x < this.pos.x ? 1 : -1;
       this.vel.x = a.kbX * dir;
       this.vel.y = a.kbY;
       this.onGround = false;
-      this.flashT = 0.12;
     }
 
     updateFacing(opponent) {
@@ -329,6 +346,8 @@
     }
 
     aimDirFromInput(input) {
+      // If crouching and not aiming up, use crouch variant
+      if (this.state === 'crouch' && !input.isDown(this.controls.upAim)) return 'crouch';
       if (input.isDown(this.controls.upAim)) return 'up';
       if (input.isDown(this.controls.downAim)) return 'down';
       const left = input.isDown(this.controls.left);
@@ -341,14 +360,20 @@
     handleInput(input, dt) {
       if (this.state === 'ko') return;
 
+      // Determine crouch intent (grounded and holding down)
+      const wantCrouch = this.onGround && input.isDown(this.controls.downAim) && this.state !== 'attack' && this.state !== 'hitstun';
+
       // Movement
-      if (this.canControl()) {
+      if (this.canControl() || this.state === 'crouch') {
         let move = 0;
         if (input.isDown(this.controls.left)) move -= 1;
         if (input.isDown(this.controls.right)) move += 1;
 
-        const target = move * CONFIG.MAX_RUN_SPEED;
+        const isCrouch = wantCrouch || this.state === 'crouch';
+        const maxSpd = isCrouch ? CONFIG.MAX_CROUCH_SPEED : CONFIG.MAX_RUN_SPEED;
+        const target = move * maxSpd;
         const accel = CONFIG.ACCEL * dt;
+
         if (this.onGround) {
           if (this.vel.x < target) this.vel.x = Math.min(target, this.vel.x + accel);
           else if (this.vel.x > target) this.vel.x = Math.max(target, this.vel.x - accel);
@@ -356,7 +381,8 @@
           this.vel.x = lerp(this.vel.x, target, 0.06);
         }
 
-        if (move !== 0 && this.onGround) this.state = 'walk';
+        if (isCrouch) this.state = 'crouch';
+        else if (move !== 0 && this.onGround) this.state = 'walk';
         else if (this.onGround && this.state !== 'attack') this.state = 'idle';
       }
 
@@ -370,7 +396,7 @@
       if (this.wallJumpLock > 0) this.wallJumpLock -= dt;
 
       // Jumps: ground or wall
-      if ((this.canControl() || this.state === 'attack') && this.jumpBuffered > 0) {
+      if ((this.canControl() || this.state === 'attack' || this.state === 'crouch') && this.jumpBuffered > 0) {
         if (this.onGround) {
           this.vel.y = -CONFIG.JUMP_SPEED;
           this.onGround = false;
@@ -403,6 +429,7 @@
     step(dt) {
       this.landedThisFrame = false;
 
+      // Attack progression
       if (this.state === 'attack' && this.attack) {
         const prevT = this.attackT;
         this.attackT += dt;
@@ -412,7 +439,14 @@
         if (this.attackT >= this.attack.total()) {
           this.attack = null;
           this.attackT = 0;
-          this.state = this.onGround ? 'idle' : 'jump';
+          // If holding down on ground, return to crouch, else idle/jump
+          if (this.onGround) {
+            this.state = (this.state === 'attack' && this.onGround) ? 'idle' : this.state;
+            // state will get set to crouch by handleInput next frame if still holding down
+            this.state = 'idle';
+          } else {
+            this.state = 'jump';
+          }
           if (this.attackBuffered) {
             const buffered = this.attackBuffered;
             this.attackBuffered = null;
@@ -421,6 +455,7 @@
         }
       }
 
+      // Hitstun
       if (this.state === 'hitstun') {
         this.hitstunT -= dt;
         if (this.hitstunT <= 0) {
@@ -428,6 +463,7 @@
         }
       }
 
+      // Gravity
       this.vel.y += CONFIG.GRAVITY * dt;
 
       // Wall detect
@@ -446,7 +482,8 @@
         this.wallStickT = CONFIG.WALL_STICK;
       }
 
-      if (this.onGround && this.canControl()) {
+      // Friction/drag
+      if (this.onGround && (this.canControl() || this.state === 'crouch')) {
         const s = Math.sign(this.vel.x);
         const mag = Math.abs(this.vel.x);
         const decel = CONFIG.GROUND_FRICTION * dt;
@@ -456,12 +493,15 @@
         this.vel.x *= CONFIG.AIR_DRAG;
       }
 
+      // Integrate
       this.pos.x += this.vel.x * dt;
       this.pos.y += this.vel.y * dt;
 
+      // Bounds X
       if (this.pos.x < half) { this.pos.x = half; this.vel.x = Math.max(0, this.vel.x); }
       if (this.pos.x > CONFIG.WIDTH - half) { this.pos.x = CONFIG.WIDTH - half; this.vel.x = Math.min(0, this.vel.x); }
 
+      // Ground collision
       if (this.pos.y >= CONFIG.FLOOR_Y) {
         if (!this.onGround) { this.landedThisFrame = true; SFX.land(); }
         this.pos.y = CONFIG.FLOOR_Y;
@@ -476,13 +516,17 @@
         this.onGround = false;
       }
 
+      // Anim timers
       this.animT += dt;
       if (this.flashT > 0) this.flashT -= dt;
 
+      // Health bar chip tween
       this.chipHealth = lerp(this.chipHealth, this.health, 0.12);
     }
 
     draw(ctx, debug = false, time = 0, camShake = { x: 0, y: 0 }) {
+      const hCur = this.currentHeight();
+
       // Shadow
       const shadowW = this.w * 0.95;
       const shadowH = 11;
@@ -497,11 +541,14 @@
       ctx.scale(this.facing, 1);
 
       const bodyW = this.w;
-      const bodyH = this.h;
-      const idleBob = Math.sin(time * 6) * (this.onGround ? 1.5 : 0);
-      const runSwing = Math.sin(time * 12) * 10 * (this.state === 'walk' ? 1 : 0);
+      const baseH = hCur;
+      const isCrouch = this.state === 'crouch';
+      const bodyH = isCrouch ? baseH * 0.92 : baseH; // compact crouch
+      const idleBob = Math.sin(time * 6) * (this.onGround ? 1.5 : 0) * (isCrouch ? 0.4 : 1);
+      const runSwing = Math.sin(time * 12) * 10 * ((this.state === 'walk' && !isCrouch) ? 1 : 0);
       const jumpTilt = this.onGround ? 0 : clamp(this.vel.y * 0.03, -8, 10);
 
+      // Hit flash tint
       const baseColor = this.color;
       const flash = this.flashT > 0 ? 1 - this.flashT / 0.12 : 0;
       const mix = (c1, c2, t) => {
@@ -543,13 +590,13 @@
 
       // Arms + poses
       const armW = 12;
-      const armH = bodyH * 0.58;
-      const armUp = -bodyH * 0.64;
+      const armH = bodyH * 0.58 * (isCrouch ? 0.9 : 1);
+      const armUp = -bodyH * (isCrouch ? 0.56 : 0.64);
       const tRatio = this.attack ? clamp(this.attackT / this.attack.total(), 0, 1) : 0;
       const windup = this.attack ? clamp((this.attack.startup ? (this.attack.startup - Math.min(this.attackT, this.attack.startup)) / this.attack.startup : 0), 0, 1) : 0;
 
-      const dir = this.attack ? this.attackDir : 'neutral';
-      let frontAngle = Math.sin(time * 12) * 10 * (this.state === 'walk' ? 1 : 0) * 0.05;
+      const dir = this.attack ? this.attackDir : (isCrouch ? 'crouch' : 'neutral');
+      let frontAngle = Math.sin(time * 12) * 10 * ((this.state === 'walk' && !isCrouch) ? 1 : 0) * 0.05;
       let backAngle = -frontAngle;
 
       if (this.state === 'attack') {
@@ -573,6 +620,11 @@
           case 'down':
             frontAngle += Math.PI * (0.35 + 0.7 * tRatio);
             backAngle += -Math.PI * 0.1 * (0.2 + windup);
+            break;
+          case 'crouch':
+            // Low jab / sweep posture
+            frontAngle += Math.PI * (0.15 + 0.55 * tRatio);
+            backAngle += -Math.PI * 0.05 * (0.2 + windup);
             break;
         }
       }
@@ -610,13 +662,13 @@
           ctx.beginPath();
           const r = 44 + i * 6;
           const ox = this.facing * (this.w * 0.62);
-          const oy = -this.h * 0.6;
+          const oy = -hCur * 0.6 * (isCrouch ? 0.8 : 1);
           const cx = this.pos.x + camShake.x + ox;
           const cy = this.pos.y + camShake.y + oy;
           const ccw = this.facing < 0;
           let start = Math.PI * 0.25, end = -Math.PI * 0.25;
           if (dir === 'up') { start = Math.PI * 0.9; end = Math.PI * 0.2; }
-          if (dir === 'down') { start = -Math.PI * 0.1; end = -Math.PI * 0.9; }
+          if (dir === 'down' || dir === 'crouch') { start = -Math.PI * 0.1; end = -Math.PI * 0.9; }
           if (dir === 'back') { start = Math.PI * 0.75; end = -Math.PI * 0.75; }
           ctx.arc(cx, cy, r, start, end, ccw);
           ctx.stroke();
@@ -626,6 +678,7 @@
 
       ctx.restore();
 
+      // Debug boxes
       if (debug) {
         const hb = this.hurtbox();
         ctx.fillStyle = COLORS.hurtbox;
@@ -687,7 +740,6 @@
     }
   }
 
-  // Floating damage text
   class DamageText {
     constructor(x, y, text, color) {
       this.x = x; this.y = y;
@@ -760,6 +812,7 @@
     shocks.push(new Shockwave(x, y));
   }
 
+  // AI (unchanged logic, now naturally can use crouch attacks via downAim/crouch state)
   const DIFFS = [
     { name: 'Easy', reaction: 0.26, desired: 120, jumpProb: 0.04, attackCD: 0.65, bravery: 0.5, heavyBias: 0.35 },
     { name: 'Normal', reaction: 0.18, desired: 100, jumpProb: 0.07, attackCD: 0.45, bravery: 0.7, heavyBias: 0.5 },
@@ -795,11 +848,15 @@
       const close = distX < 70;
       const mid = distX < 130;
 
+      // Reset movement/aim
       this.pad.setDown(f.controls.left, false);
       this.pad.setDown(f.controls.right, false);
       this.pad.setDown(f.controls.upAim, false);
-      this.pad.setDown(f.controls.downAim, false);
+      // Sometimes crouch for lows at close range
+      const doCrouch = onGround && close && Math.random() < 0.25;
+      this.pad.setDown(f.controls.downAim, doCrouch);
 
+      // Spacing
       if (distX > this.diff.desired + 20) {
         if (f.pos.x < o.pos.x) this.pad.setDown(f.controls.right, true);
         else this.pad.setDown(f.controls.left, true);
@@ -813,26 +870,7 @@
         else this.pad.setDown(f.controls.right, true);
       }
 
-      let aimUp = false, aimDown = false, aimToward = false, aimBack = false;
-      if (!o.onGround && (o.pos.y < f.pos.y - 40)) aimUp = true;
-      else if (o.pos.y > f.pos.y - 20) aimDown = Math.random() < 0.15;
-      if (f.pos.x < o.pos.x) { aimToward = f.facing === 1; aimBack = !aimToward; }
-      else { aimToward = f.facing === -1; aimBack = !aimToward; }
-
-      if (aimUp) this.pad.setDown(f.controls.upAim, true);
-      else if (aimDown) this.pad.setDown(f.controls.downAim, true);
-      else if (aimToward) {
-        if (f.facing === 1) this.pad.setDown(f.controls.right, true);
-        else this.pad.setDown(f.controls.left, true);
-      } else if (aimBack) {
-        if (f.facing === 1) this.pad.setDown(f.controls.left, true);
-        else this.pad.setDown(f.controls.right, true);
-      }
-
-      if (onGround && distX > this.diff.desired + 40 && Math.random() < this.diff.jumpProb) {
-        this.pad.press(f.controls.jump, 0.08);
-      }
-
+      // Anti-air
       const oppRising = !o.onGround && o.vel.y < -50 && mid;
       if (onGround && oppRising && this.coolAttack <= 0) {
         this.pad.setDown(f.controls.upAim, true);
@@ -841,8 +879,8 @@
         return;
       }
 
+      // Attack choice
       const doHeavy = Math.random() < this.diff.heavyBias;
-
       if (this.coolAttack <= 0) {
         if (onGround && (close || mid)) {
           this.pad.press(doHeavy ? f.controls.heavy : f.controls.light);
@@ -895,7 +933,7 @@
       this.camShakeMag = 0;
       this.particles = [];
       this.shockwaves = [];
-      this.texts = []; // damage numbers
+      this.texts = [];
       this.lastTimerWhole = CONFIG.ROUND_TIME;
       this.flashAlpha = 0;
 
@@ -983,7 +1021,8 @@
       SFX.ko();
       if (explodedFighter) {
         const col = explodedFighter === this.p1 ? 'rgba(51,214,166,1)' : 'rgba(247,118,142,1)';
-        spawnExplosion(this.particles, this.shockwaves, explodedFighter.pos.x, explodedFighter.pos.y - explodedFighter.h * 0.6, col);
+        const h = explodedFighter.currentHeight();
+        spawnExplosion(this.particles, this.shockwaves, explodedFighter.pos.x, explodedFighter.pos.y - h * 0.6, col);
         this.flashAlpha = 0.45;
         SFX.boom();
       }
@@ -1042,7 +1081,7 @@
       // Physics/attacks
       for (const p of this.players) p.step(dt);
 
-      // SFX on active start
+      // Whoosh on active start
       for (const p of this.players) {
         if (p._activeJustStarted) {
           SFX.whoosh(p.attackKind === 'light');
@@ -1050,8 +1089,10 @@
         }
       }
 
-      // Push, land dust
+      // Push apart
       this.resolvePush();
+
+      // Landing dust
       for (const p of this.players) {
         if (p.landedThisFrame) spawnDust(this.particles, p.pos.x, CONFIG.FLOOR_Y);
       }
@@ -1072,7 +1113,7 @@
         }
       }
 
-      // Particles/texts/shockwaves
+      // FX updates
       for (let i = this.particles.length - 1; i >= 0; i--) {
         const pt = this.particles[i];
         pt.step(dt);
@@ -1089,7 +1130,7 @@
         if (sw.life <= 0) this.shockwaves.splice(i, 1);
       }
 
-      // Camera/flash
+      // Shake/flash
       if (this.camShakeT > 0) this.camShakeT -= dt;
       if (this.camShakeT <= 0) this.camShakeMag = 0;
       this.flashAlpha = Math.max(0, this.flashAlpha - dt * 1.2);
@@ -1124,7 +1165,8 @@
         if (!hb) return;
         const defHurt = defender.hurtbox();
         if (rectsIntersect(hb, defHurt)) {
-          defender.takeHit(attacker, attacker.attack);
+          const armored = defender.state === 'attack'; // super armor: no stagger while attacking
+          defender.takeHit(attacker, attacker.attack, { armored });
           attacker.hasHitThisAttack = true;
 
           const heavy = attacker.attack.damage >= 10;
@@ -1135,7 +1177,7 @@
           const cy = hb.y + hb.h / 2;
           spawnHitSparks(this.particles, cx, cy, 'rgba(255,255,255,0.9)');
           // Damage number over defender
-          this.texts.push(new DamageText(defender.pos.x, defender.pos.y - defender.h - 10, `-${attacker.attack.damage}`, 'rgba(255,255,255,0.95)'));
+          this.texts.push(new DamageText(defender.pos.x, defender.pos.y - defender.currentHeight() - 10, `-${attacker.attack.damage}`, 'rgba(255,255,255,0.95)'));
           SFX.hit(!heavy);
         }
       };
@@ -1158,31 +1200,28 @@
     }
 
     drawFighterUI(f, isAI = false) {
-      // Name and compact HP bar above the fighter
+      // Name + mini HP bar above fighter
       const padX = 6;
       const padY = 4;
       const barW = 90;
       const barH = 8;
       let x = clamp(f.pos.x, 60, CONFIG.WIDTH - 60);
-      const y = f.pos.y - f.h - 26;
+      const y = f.pos.y - f.currentHeight() - 26;
 
       const name = isAI ? `AI (${this.ai.diff.name})` : 'You';
       const col = isAI ? COLORS.p2 : COLORS.p1;
 
-      // Name background
       ctx.save();
       ctx.font = '900 12px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial';
       const nameW = Math.max(ctx.measureText(name).width, barW);
       const boxW = nameW + padX * 2;
       const boxH = 14 + padY * 2 + barH + 6;
 
-      // Back panel
       ctx.globalAlpha = 0.9;
       ctx.fillStyle = 'rgba(0,0,0,0.55)';
       roundRectPath(ctx, x - boxW/2, y - boxH, boxW, boxH, 8);
       ctx.fill();
 
-      // Border glow
       ctx.strokeStyle = col;
       ctx.globalAlpha = 0.65;
       ctx.lineWidth = 1.5;
@@ -1190,26 +1229,21 @@
       ctx.stroke();
       ctx.globalAlpha = 1;
 
-      // Name text
       ctx.fillStyle = '#ffffff';
       ctx.textBaseline = 'top';
       ctx.fillText(name, x - ctx.measureText(name).width/2, y - boxH + padY + 1);
 
-      // Small HP bar
       const hpFrac = clamp(f.health / 100, 0, 1);
       const chipFrac = clamp(f.chipHealth / 100, 0, 1);
       const barX = x - barW/2;
       const barY = y - barH - 6;
 
-      // Background
       ctx.fillStyle = 'rgba(255,255,255,0.12)';
       roundRectPath(ctx, barX, barY, barW, barH, 4);
       ctx.fill();
-      // Chip
       ctx.fillStyle = 'rgba(255,255,255,0.25)';
       roundRectPath(ctx, barX, barY, barW * chipFrac, barH, 4);
       ctx.fill();
-      // HP
       ctx.fillStyle = col;
       roundRectPath(ctx, barX, barY, barW * hpFrac, barH, 4);
       ctx.fill();
@@ -1260,11 +1294,11 @@
       this.p1.draw(ctx, this.debug, now, cam);
       this.p2.draw(ctx, this.debug, now, cam);
 
-      // Particles and shockwaves behind UI
+      // FX
       for (const pt of this.particles) pt.draw(ctx);
       for (const sw of this.shockwaves) sw.draw(ctx);
 
-      // Floating UI above fighters (AI included)
+      // Floating UI
       this.drawFighterUI(this.p1, false);
       this.drawFighterUI(this.p2, true);
 
