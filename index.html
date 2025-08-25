@@ -31,13 +31,16 @@
         <div class="messages" id="messages"></div>
         <div class="controls">
           <div>
-            You (P1): Move A/D • Jump W • Light J • Heavy K
+            You (P1): Move A/D • Aim Up W • Aim Down S • Jump Space
           </div>
           <div>
-            Reset: R • Pause: P • Toggle Debug: `
+            Attacks: J = Directional Light • K = Directional Heavy (Up/Down/Forward/Back/Neutral)
           </div>
           <div>
-            Sound: Mute/Unmute M • AI Difficulty: <span id="ai-diff">Normal</span> (H to cycle)
+            Wall Jump: Hold into wall + Space • Reset: R • Pause: P • Toggle Debug: `
+          </div>
+          <div>
+            Sound: Mute M • AI Difficulty: <span id="ai-diff">Normal</span> (H to cycle) • Floating UI shows health above fighters
           </div>
           <div>
             Tip: Click Play or press any key to enable audio.
@@ -52,7 +55,7 @@
           <div class="menu-sub">VS AI • Canvas + WebAudio</div>
           <button id="btn-play" class="btn-primary">Play</button>
           <div class="menu-hint">
-            Controls: A/D to move, W to jump, J/K to attack. Press H in-game to change AI difficulty.
+            Directional attacks: hold W/S/A/D or neutral, then press J (light) or K (heavy). Jump with Space. Wall jump by holding into a wall and pressing Space.
           </div>
         </div>
       </div>
