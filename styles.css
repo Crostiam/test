@@ -20,6 +20,7 @@ html, body {
   display: grid;
   place-items: center;
   padding: 24px;
+  position: relative;
 }
 #game {
   width: min(96vw, 960px);
@@ -74,14 +75,14 @@ html, body {
   position: absolute;
   top: 0; bottom: 0;
   left: 0;
+  right: auto;
   width: 100%;
-  transform-origin: left center;
   border-radius: 999px;
 }
 .bar-fg { background: linear-gradient(90deg, var(--p1), #22b388); }
-.bar-fg.right { background: linear-gradient(270deg, var(--p2), #d95e72); left: auto; right: 0; transform-origin: right center; }
+.bar-fg.right { background: linear-gradient(270deg, var(--p2), #d95e72); left: auto; right: 0; }
 .bar-chip { background: var(--chip); }
-.bar-chip.right { left: auto; right: 0; transform-origin: right center; }
+.bar-chip.right { left: auto; right: 0; }
 
 .timer {
   text-align: center;
@@ -111,4 +112,54 @@ html, body {
   color: rgba(231,233,238,0.85);
   display: grid;
   gap: 4px;
+}
+
+/* Menu overlay */
+.menu-overlay {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(800px 500px at 50% 30%, rgba(10,12,16,0.75) 0%, rgba(5,6,8,0.85) 60%, rgba(0,0,0,0.9) 100%);
+  backdrop-filter: blur(2px);
+  z-index: 10;
+}
+.menu-overlay.hidden { display: none; }
+
+.menu-panel {
+  width: min(92vw, 560px);
+  border-radius: 14px;
+  padding: 24px;
+  background: rgba(255,255,255,0.06);
+  box-shadow: 0 10px 40px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.08) inset;
+  text-align: center;
+}
+.menu-title {
+  font-size: 28px;
+  font-weight: 900;
+  letter-spacing: 0.6px;
+}
+.menu-sub {
+  opacity: 0.8;
+  margin-top: 4px;
+  margin-bottom: 18px;
+}
+.btn-primary {
+  appearance: none;
+  border: 0;
+  padding: 12px 20px;
+  font-weight: 800;
+  letter-spacing: 0.6px;
+  border-radius: 10px;
+  color: #0b0d11;
+  background: linear-gradient(90deg, #7aa2f7, #33d6a6);
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.35);
+}
+.btn-primary:hover { filter: brightness(1.06); }
+.btn-primary:active { transform: translateY(1px); }
+.menu-hint {
+  font-size: 13px;
+  opacity: 0.85;
+  margin-top: 14px;
 }
